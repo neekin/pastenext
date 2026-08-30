@@ -1,0 +1,50 @@
+[package]
+name = "paste-next"
+version = "1.0.0"
+description = "A local-first clipboard manager for macOS and Windows"
+edition = "2021"
+
+[lib]
+name = "paste_next_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "protocol-asset"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+arboard = "3"
+image = { version = "0.25", default-features = false, features = ["png", "tiff", "bmp"] }
+percent-encoding = "2"
+sys-locale = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSData", "NSURL"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem", "NSWorkspace", "NSRunningApplication"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

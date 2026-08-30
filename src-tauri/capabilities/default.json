@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Default capability for all app windows",
+  "windows": ["panel", "settings"],
+  "permissions": ["core:default"]
+}

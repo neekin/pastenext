@@ -1,0 +1,114 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          # Windows 暂不发布:src-tauri/src/platform/win32.rs 尚未适配 Tauri 2 /
+          # windows 0.61 的 API,编译不通过(20+ 处错误),且从未在本机验证过。
+          # 修复后把下面三行取消注释,并同步恢复 release job 里的 Windows 产物检查。
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        # PASTENEXT_RELEASE=1 会让 build.rs 在缺少密钥时直接失败,
+        # 避免误用仓库里的开发占位密钥产出可公开伪造序列号的安装包。
+        # 三个 secret 需在仓库 Settings → Secrets 中配置:
+        #   PASTENEXT_SIGN_SECRET / PASTENEXT_MAIL_SECRET / PASTENEXT_PURCHASE_URL
+        env:
+          PASTENEXT_RELEASE: "1"
+          PASTENEXT_SIGN_SECRET: ${{ secrets.PASTENEXT_SIGN_SECRET }}
+          PASTENEXT_MAIL_SECRET: ${{ secrets.PASTENEXT_MAIL_SECRET }}
+          PASTENEXT_PURCHASE_URL: ${{ secrets.PASTENEXT_PURCHASE_URL }}
+        run: pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Upload artifacts (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PasteNext-macos-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+
+      # Windows 产物上传,与上方矩阵同步禁用
+      # - name: Upload artifacts (Windows)
+      #   if: runner.os == 'Windows'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: PasteNext-windows-${{ matrix.target }}
+      #     path: |
+      #       src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+      #       src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+
+  release:
+    # 推送 v* 标签时自动创建 GitHub Release 并附上安装包
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Collect installers with stable names
+        run: |
+          mkdir -p out
+          # macOS
+          find dist -name "PasteNext*_aarch64.dmg" -exec cp {} out/PasteNext-macOS-arm64.dmg \;
+          find dist \( -name "PasteNext*_x86_64.dmg" -o -name "PasteNext*_x64.dmg" \) -exec cp {} out/PasteNext-macOS-intel.dmg \;
+          # Windows 产物(矩阵里暂时禁用,有就带上,没有不阻塞发布)
+          find dist -name "PasteNext*_x64_en-US.msi" -exec cp {} out/PasteNext-Windows-x64.msi \;
+          find dist -name "PasteNext*_x64-setup.exe" -exec cp {} out/PasteNext-Windows-x64-setup.exe \;
+          test -f out/PasteNext-macOS-arm64.dmg || { echo "arm64 DMG missing!"; find dist -type f | head -30; exit 1; }
+          test -f out/PasteNext-macOS-intel.dmg || { echo "intel DMG missing!"; find dist -type f | head -30; exit 1; }
+          ls -la out/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/PasteNext-macOS-*.dmg
+            # Windows 恢复后启用:
+            # out/PasteNext-Windows-*.msi
+            # out/PasteNext-Windows-*.exe
+          generate_release_notes: true

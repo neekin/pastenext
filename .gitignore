@@ -1,0 +1,14 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+*.local
+.DS_Store
+
+# 编辑器 / 工具产生的本地目录
+.deveco/
+.workbuddy/
+
+# 授权密钥:发号用的生产密钥绝不能进仓库(见 .workbuddy/artifacts)
+.env
+.env.license
