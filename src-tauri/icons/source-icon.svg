@@ -1,0 +1,32 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f1f22"/>
+      <stop offset="100%" stop-color="#2c2c30"/>
+    </linearGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f2f2f7"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e4e4e9"/>
+      <stop offset="100%" stop-color="#d4d4d8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+
+  <rect x="272" y="322" width="480" height="580" rx="60" fill="#000000" opacity="0.22"/>
+  <rect x="262" y="292" width="500" height="620" rx="60" fill="url(#board)"/>
+
+  <rect x="392" y="202" width="240" height="120" rx="34" fill="url(#clip)"/>
+  <rect x="432" y="262" width="160" height="90" rx="22" fill="url(#board)"/>
+
+  <rect x="342" y="452" width="340" height="44" rx="22" fill="#1d1d1f"/>
+  <rect x="342" y="542" width="260" height="44" rx="22" fill="url(#accent)"/>
+  <rect x="342" y="632" width="300" height="44" rx="22" fill="#1d1d1f"/>
+</svg>
