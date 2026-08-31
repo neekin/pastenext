@@ -22,6 +22,11 @@ export default function Panel() {
   const [newBoard, setNewBoard] = useState("");
   const [animKey, setAnimKey] = useState(0);
   const [axTrusted, setAxTrusted] = useState(true);
+  // 进场可见性闸门:唤起瞬间先把面板隐藏,等 WebView 把窗口几何(全宽)应用完再揭幕,
+  // 否则首帧仍是 860 宽,会出现横向滚动条闪烁 + 面板"展开"的跳变
+  const [entered, setEntered] = useState(false);
+  // 退场动画:关闭时先播放淡出,结束后再真正隐藏窗口
+  const [leaving, setLeaving] = useState(false);
   // 每个会话只自动弹一次系统授权提示
   const axPromptedRef = useRef(false);
   // 运行时设置(纯文本模式/修饰键/音效等)
@@ -86,6 +91,16 @@ export default function Panel() {
     return always ? !held : held;
   }, []);
 
+  // 关闭面板:先播放淡出退场动画,动画结束后再真正隐藏窗口,与进场对称
+  const EXIT_MS = 200;
+  const requestHide = useCallback(() => {
+    setEntered(false);
+    setLeaving(true);
+    window.setTimeout(() => {
+      api.hidePanel().catch(() => {});
+    }, EXIT_MS);
+  }, []);
+
   const pasteClip = useCallback((id: number, plain: boolean = false) => {
     const now = Date.now();
     if (lastPasteRef.current.id === id && now - lastPasteRef.current.at < 600) {
@@ -93,8 +108,9 @@ export default function Panel() {
     }
     lastPasteRef.current = { id, at: now };
     playTick();
-    api.pasteClip(id, plain).catch(() => {});
-  }, [playTick]);
+    // 粘贴成功后淡出关闭(失败则保留面板以便重试)
+    api.pasteClip(id, plain).then(() => requestHide()).catch(() => {});
+  }, [playTick, requestHide]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const reloadRef = useRef<() => void>(() => {});
@@ -127,30 +143,39 @@ export default function Panel() {
   useEffect(() => {
     const u1 = onClipsUpdated(() => reloadRef.current());
     const u2 = onPanelShown(() => {
-      setAnimKey((k) => k + 1);
-      reloadRef.current();
-      loadCfg();
-      // 应用可能连续运行好几天不重启,每次唤起面板都重新判定一次试用阶段
-      licenseReloadRef.current();
-      searchRef.current?.focus();
-      searchRef.current?.select();
-      // 每次唤起都刷新权限状态:授权后提示条自动消失;
-      // 未授权时本会话内自动弹出一次系统原生授权提示
-      if (/Mac|iPhone|iPad/.test(navigator.platform)) {
-        api
-          .getAccessibilityTrusted()
-          .then((trusted) => {
-            setAxTrusted(trusted);
-            if (!trusted && !axPromptedRef.current) {
-              axPromptedRef.current = true;
-              api
-                .requestAccessibility()
-                .then(setAxTrusted)
-                .catch(() => {});
-            }
-          })
-          .catch(() => {});
-      }
+      // 先立即隐藏(entered/leaving 都清掉),屏蔽窗口几何 resize 那一两帧(860 宽 → 全宽)带来的滚动条闪烁
+      setEntered(false);
+      setLeaving(false);
+      // 等两帧,确保 WebView 已按全宽重排,再揭幕并播放进场动画
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          setEntered(true);
+          setAnimKey((k) => k + 1);
+          reloadRef.current();
+          loadCfg();
+          // 应用可能连续运行好几天不重启,每次唤起面板都重新判定一次试用阶段
+          licenseReloadRef.current();
+          searchRef.current?.focus();
+          searchRef.current?.select();
+          // 每次唤起都刷新权限状态:授权后提示条自动消失;
+          // 未授权时本会话内自动弹出一次系统原生授权提示
+          if (/Mac|iPhone|iPad/.test(navigator.platform)) {
+            api
+              .getAccessibilityTrusted()
+              .then((trusted) => {
+                setAxTrusted(trusted);
+                if (!trusted && !axPromptedRef.current) {
+                  axPromptedRef.current = true;
+                  api
+                    .requestAccessibility()
+                    .then(setAxTrusted)
+                    .catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
+        })
+      );
     });
     return () => {
       u1.then((f) => f());
@@ -170,7 +195,7 @@ export default function Panel() {
         hadFocus = false;
         setDetail(null);
         setDetailAnchor(null);
-        api.hidePanel().catch(() => {});
+        requestHide();
       }
     };
     window.addEventListener("focus", onFocus);
@@ -220,7 +245,7 @@ export default function Panel() {
     if (detail) return;
     if (e.key === "Escape") {
       e.preventDefault();
-      api.hidePanel().catch(() => {});
+      requestHide();
     } else if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
       // 快速粘贴:⌘/Ctrl + 1..9 直接粘贴第 N 条
       e.preventDefault();
@@ -251,12 +276,12 @@ export default function Panel() {
 
   return (
     <div
-      className="relative h-full flex flex-col select-none"
+      className="relative h-full flex flex-col select-none overflow-hidden"
       onKeyDown={onKeyDown}
     >
       <div
         key={animKey}
-        className="panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden"
+        className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}
       >
         {/* 搜索 + 类型筛选 */}
         <div className="flex items-center gap-2 px-4 pt-3.5">

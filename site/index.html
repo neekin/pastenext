@@ -219,6 +219,9 @@
       <div class="step" data-page-node-id="XMWzvOIREXXGSCApaqtjbI"><div class="num" data-page-node-id="wzNjZTJMcTIO7asOrBVCPa">3</div><div data-page-node-id="I7nuhGMtScRcUUYInVPP8X"><h4 data-t="inst.s3t" data-page-node-id="vnBAqIAVQ4NnDhKyUZpBKY">授权辅助功能</h4><p data-th="inst.s3d" data-page-node-id="Foy5FIZ8UPpMM36SDHzGkq">唤起面板时按提示授权「辅助功能」,即可自动粘贴;未授权时仍可复制后手动粘贴。</p></div></div>
     </div>
     <div class="note" data-th="inst.note" data-page-node-id="akQhNWMOMxHp39egVUuIjO"><b data-page-node-id="bXIf3zdVgy8YDZUmUVjIC0">提示</b>:运行后 PasteNext 常驻菜单栏,Dock 图标默认隐藏(可在设置中开启)。按 <b data-page-node-id="iaer0CYP84zjsXCtLqrPme">⌘⇧V</b> 即可唤起面板,粘贴完毕自动隐藏。</div>
+    <div class="note" data-th="inst.axUpdate">
+      <b>升级后辅助功能授权失效?</b>:每次更新后,若系统再次提示 PasteNext 想控制「辅助功能」、或自动粘贴失效,请先到 <b>系统设置 → 隐私与安全性 → 辅助功能</b> 中<b>取消勾选 / 移除原有的 PasteNext 条目</b>,再重新打开面板按提示授权。这是应用未做 Apple 公证、每次构建签名都会变化所致,属正常现象 —— 删除旧授权即可重新设置。
+    </div>
     <div class="note" data-th="inst.winNote">
       <b>Windows 用户</b>:下载 <code>PasteNext-Windows-x64-setup.exe</code> 双击安装;或下载 <code>PasteNext-Windows-x64-portable.zip</code> 解压即用,数据存放在程序同目录的 <code>Data/</code> 文件夹,可随文件夹整体带走。
     </div>
@@ -282,6 +285,7 @@
       "inst.s2alt": "之后再打开即可。也可以:<b>系统设置 → 隐私与安全性</b> → 底部点击「仍要打开」。",
       "inst.s3t": "授权辅助功能",
       "inst.s3d": "唤起面板时按提示授权「辅助功能」,即可自动粘贴;未授权时仍可复制后手动粘贴。",
+      "inst.axUpdate": "<b>升级后辅助功能授权失效?</b>:每次更新后,若系统再次提示 PasteNext 想控制「辅助功能」、或自动粘贴失效,请先到 <b>系统设置 → 隐私与安全性 → 辅助功能</b> 中<b>取消勾选 / 移除原有的 PasteNext 条目</b>,再重新打开面板按提示授权。这是应用未做 Apple 公证、每次构建签名都会变化所致,属正常现象 —— 删除旧授权即可重新设置。",
       "inst.note": "<b>提示</b>:运行后 PasteNext 常驻菜单栏,Dock 图标默认隐藏(可在设置中开启)。按 <b>⌘⇧V</b> 即可唤起面板,粘贴完毕自动隐藏。",
       "inst.winNote": "<b>Windows 用户</b>:下载 <code>PasteNext-Windows-x64-setup.exe</code> 双击安装;或下载 <code>PasteNext-Windows-x64-portable.zip</code> 解压即用,数据存放在程序同目录的 <code>Data/</code> 文件夹,可随文件夹整体带走。",
       "btn.copy": "复制",
@@ -336,6 +340,7 @@
       "inst.s2alt": "Then open it again. Alternatively: <b>System Settings → Privacy & Security</b> → click <b>Open Anyway</b>.",
       "inst.s3t": "Grant Accessibility",
       "inst.s3d": "Follow the prompt to grant Accessibility when the panel opens and auto-paste works. Without it you can still paste manually.",
+      "inst.axUpdate": "<b>Accessibility prompt after an update?</b>: After each update, if macOS asks again to control Accessibility or auto-paste stops working, first go to <b>System Settings → Privacy & Security → Accessibility</b> and <b>uncheck / remove the existing PasteNext entry</b>, then reopen the panel and grant it again. This is expected: the app isn't Apple-notarized, so its signature changes on every build. Remove the old entry and you can re-authorize.",
       "inst.note": "<b>Tip</b>: PasteNext lives in the menu bar and hides its Dock icon by default (toggle in Settings). Press <b>⌘⇧V</b> to summon the panel; it hides once you paste.",
       "inst.winNote": "<b>Windows users</b>: download <code>PasteNext-Windows-x64-setup.exe</code> and double-click to install, or grab <code>PasteNext-Windows-x64-portable.zip</code> and run it anywhere. Your data lives in a <code>Data/</code> folder next to the executable, so the whole folder is portable.",
       "btn.copy": "Copy",

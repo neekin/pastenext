@@ -135,7 +135,6 @@ fn paste_clip_internal(app: &AppHandle, db: &State<Db>, id: i64, plain: bool) ->
 #[tauri::command]
 pub fn paste_clip(app: AppHandle, db: State<Db>, id: i64, plain: Option<bool>) -> Result<(), String> {
     paste_clip_internal(&app, &db, id, plain.unwrap_or(false))?;
-    crate::hide_panel(&app);
     emit(&app, "paste");
     Ok(())
 }

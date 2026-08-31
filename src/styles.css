@@ -4,17 +4,38 @@
 
 @keyframes panel-slide-up {
   from {
-    transform: translateY(28px);
+    transform: translateY(16px) scale(0.99);
     opacity: 0;
   }
   to {
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 }
 
+@keyframes panel-slide-down {
+  from {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(12px) scale(0.99);
+    opacity: 0;
+  }
+}
+
 .panel-surface {
-  animation: panel-slide-up 0.18s ease-out;
+  transform-origin: bottom center;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.panel-surface.entered {
+  animation: panel-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.panel-surface.leaving {
+  animation: panel-slide-down 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 body {
