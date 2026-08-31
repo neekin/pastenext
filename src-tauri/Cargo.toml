@@ -1,6 +1,6 @@
 [package]
 name = "paste-next"
-version = "1.0.7"
+version = "1.0.8"
 description = "A local-first clipboard manager for macOS and Windows"
 edition = "2021"
 

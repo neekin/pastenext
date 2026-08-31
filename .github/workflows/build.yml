@@ -1,8 +1,10 @@
 name: build
 
 on:
+  # 仅 tag 推送触发发版构建与 Release:一次 git push origin <tag> 只跑一次,
+  # 不再额外触发 main 分支构建(此前推送 main --tags 会重复构建两次,浪费 CI 分钟)。
+  # 日常 main 提交不再自动构建;需发版时打 v* tag 即可。
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 

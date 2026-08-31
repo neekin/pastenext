@@ -17,6 +17,12 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+// 平台相关默认全局快捷键:
+// - Windows 上 Ctrl+Shift+V 与系统/输入法冲突较多,改用 Ctrl+Alt+V 更符合习惯
+// - macOS 保持 Cmd+Shift+V(写成 CmdOrCtrl 以便同一份字符串跨平台解析)
+#[cfg(target_os = "windows")]
+const DEFAULT_HOTKEY: &str = "Ctrl+Alt+V";
+#[cfg(not(target_os = "windows"))]
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+V";
 
 /// 面板唤起前的前台应用(粘贴时恢复它的焦点)

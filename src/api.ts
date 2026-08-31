@@ -73,6 +73,41 @@ export const api = {
   openUrl: (url: string) => invoke<void>("open_url", { url }),
 };
 
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  hasUpdate: boolean;
+  url: string;
+}
+
+/** 检测 GitHub Releases 上的最新版本,与当前版本做语义化比较。零额外依赖(CSP 为 null 允许外连)。 */
+export async function checkUpdate(current: string): Promise<UpdateInfo> {
+  const res = await fetch("https://api.github.com/repos/neekin/pastenext/releases/latest", {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const rel = (await res.json()) as { tag_name?: string; html_url?: string };
+  const latest = String(rel.tag_name ?? "").replace(/^v/, "");
+  const url = rel.html_url || "https://github.com/neekin/pastenext/releases";
+  return {
+    current,
+    latest,
+    hasUpdate: compareVersion(latest, current) > 0,
+    url,
+  };
+}
+
+function compareVersion(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
 export function onClipsUpdated(cb: () => void) {
   return listen<unknown>("clips-updated", cb);
 }

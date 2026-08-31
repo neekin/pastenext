@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api } from "../api";
+import { api, checkUpdate, type UpdateInfo } from "../api";
 import { applyTheme } from "../theme";
 import { useI18n, type Locale } from "../i18n";
 import LicenseGate from "../license/LicenseGate";
@@ -27,20 +27,223 @@ const lbl = "text-[13px] text-neutral-600 dark:text-neutral-300";
 const inputCls =
   "h-8 px-2 rounded-lg bg-black/5 dark:bg-white/10 text-[13px] outline-none text-neutral-800 dark:text-neutral-100 w-48";
 
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+// 平台相关默认全局快捷键:Windows 用 Ctrl+Alt+V(更符合习惯),macOS 用 Cmd+Shift+V
+const DEFAULT_HOTKEY = IS_MAC ? "CmdOrCtrl+Shift+V" : "Ctrl+Alt+V";
+
+/** 把一次 keydown 事件转换成 Tauri 加速器字符串(如 "Ctrl+Alt+V" / "CmdOrCtrl+Shift+V")。
+ *  无修饰键或非按键(仅修饰键)时返回 null,由调用方决定是否忽略。 */
+function acceleratorFromEvent(e: KeyboardEvent): string | null {
+  const code = e.code;
+  let key: string | null = null;
+  if (/^Key[A-Z]$/.test(code)) key = code.slice(3);
+  else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
+  else if (/^F([0-9]{1,2})$/.test(code)) key = code; // F1..F12
+  else {
+    const map: Record<string, string> = {
+      Space: "Space",
+      Enter: "Enter",
+      Escape: "Escape",
+      Tab: "Tab",
+      Backspace: "Backspace",
+      Delete: "Delete",
+      ArrowUp: "Up",
+      ArrowDown: "Down",
+      ArrowLeft: "Left",
+      ArrowRight: "Right",
+      Comma: "Comma",
+      Period: "Period",
+      Slash: "Slash",
+      Semicolon: "Semicolon",
+      Quote: "Quote",
+      BracketLeft: "BracketLeft",
+      BracketRight: "BracketRight",
+      Backslash: "Backslash",
+      Minus: "Minus",
+      Equal: "Equal",
+      Backquote: "Backquote",
+    };
+    key = map[code] ?? null;
+  }
+  if (!key) return null;
+  const mods: string[] = [];
+  if (e.metaKey) mods.push("CmdOrCtrl");
+  else if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (mods.length === 0) return null; // 全局快捷键必须含至少一个修饰键
+  return [...mods, key].join("+");
+}
+
+/** 点击进入录制态,下一次按键即记录为该全局快捷键并立即保存。 */
+function HotkeyRecorder({
+  value,
+  defaultValue,
+  onSave,
+}: {
+  value: string;
+  defaultValue: string;
+  onSave: (accel: string) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const [recording, setRecording] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [display, setDisplay] = useState(value);
+
+  useEffect(() => setDisplay(value), [value]);
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setRecording(false);
+        setMsg("");
+        return;
+      }
+      const acc = acceleratorFromEvent(e);
+      if (!acc) {
+        if (e.key !== "Shift" && e.key !== "Control" && e.key !== "Alt" && e.key !== "Meta") {
+          setMsg(t("settings.hotkey.needMod"));
+        }
+        return; // 只有修饰键,继续等待主键
+      }
+      setRecording(false);
+      setDisplay(acc);
+      setMsg("");
+      onSave(acc)
+        .then(() => setMsg(t("settings.hotkey.saved")))
+        .catch((err) => setMsg(t("settings.hotkey.error", { message: String(err) })));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [recording, onSave, t]);
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={() => {
+          setMsg("");
+          setRecording((r) => !r);
+        }}
+        className={`h-8 px-3 rounded-lg text-xs font-mono border ${
+          recording
+            ? "bg-indigo-500 text-white border-indigo-500"
+            : "bg-black/5 dark:bg-white/10 border-black/10 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/20"
+        }`}
+      >
+        {recording ? t("settings.hotkey.recording") : display || defaultValue}
+      </button>
+      {recording && (
+        <span className="text-xs text-neutral-400">{t("settings.hotkey.hint")}</span>
+      )}
+      {!recording && display && display !== defaultValue && (
+        <button
+          type="button"
+          onClick={() => {
+            setMsg("");
+            onSave(defaultValue)
+              .then(() => setMsg(t("settings.hotkey.saved")))
+              .catch((e) => setMsg(t("settings.hotkey.error", { message: String(e) })));
+          }}
+          className="text-xs text-neutral-400 hover:text-indigo-500"
+        >
+          {t("settings.hotkey.reset")}
+        </button>
+      )}
+      {msg && <span className="text-xs text-neutral-400">{msg}</span>}
+    </div>
+  );
+}
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 ring-1 ring-black/5 dark:ring-white/10 p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-100">{t("help.title")}</h2>
+          <button
+            onClick={onClose}
+            className="h-7 w-7 rounded-lg text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label={t("help.close")}
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">{t("help.intro")}</p>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.shortcuts")}
+          </h3>
+          <ul className="text-[13px] text-neutral-600 dark:text-neutral-300 space-y-1 list-disc list-inside">
+            <li>{t("help.hotkeyMac")}</li>
+            <li>{t("help.hotkeyWin")}</li>
+            <li>{t("help.quickPaste")}</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.portable")}
+          </h3>
+          <p className="text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">{t("help.portableDesc")}</p>
+        </div>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.trial")}
+          </h3>
+          <p className="text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">{t("help.trialDesc")}</p>
+        </div>
+
+        <div className="rounded-xl bg-indigo-50 dark:bg-indigo-500/10 p-3">
+          <h3 className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 mb-1">
+            {t("help.promise")}
+          </h3>
+          <p className="text-[13px] leading-6 text-indigo-700/90 dark:text-indigo-200/90">
+            {t("help.promiseDesc")}
+          </p>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
+        >
+          {t("help.close")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { t, locale, setLocale } = useI18n();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [apps, setApps] = useState<string[]>([]);
   const [sourceApps, setSourceApps] = useState<string[]>([]);
   const [newApp, setNewApp] = useState("");
-  const [hotkey, setHotkey] = useState("CmdOrCtrl+Shift+V");
-  const [hotkeyMsg, setHotkeyMsg] = useState("");
+  const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
   const [autostart, setAutostart] = useState(false);
   const [maxItems, setMaxItems] = useState("0");
   const [confirmClear, setConfirmClear] = useState(false);
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const [axTrusted, setAxTrusted] = useState(true);
   const [version, setVersion] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState("");
   const license = useLicense();
   const [licEmail, setLicEmail] = useState("");
   const [licKey, setLicKey] = useState("");
@@ -65,7 +268,7 @@ export default function Settings() {
       .getSettings()
       .then((s) => {
         setSettings(s);
-        setHotkey(s.hotkey ?? "CmdOrCtrl+Shift+V");
+        setHotkey(s.hotkey ?? DEFAULT_HOTKEY);
         setMaxItems(s.max_items ?? "0");
         if (s.locale === "zh-CN" || s.locale === "en") {
           setLocale(s.locale as Locale);
@@ -83,14 +286,25 @@ export default function Settings() {
     api.setSetting(k, v).catch(() => {});
   };
 
-  const saveHotkey = async () => {
-    setHotkeyMsg("");
+  const saveHotkey = async (accel: string) => {
+    await api.setHotkey(accel.trim());
+    setSettings((s) => ({ ...s, hotkey: accel.trim() }));
+    setHotkey(accel.trim());
+  };
+
+  const checkForUpdate = async () => {
+    if (!version) return;
+    setChecking(true);
+    setUpdateMsg(t("about.checkingUpdate"));
+    setUpdateInfo(null);
     try {
-      await api.setHotkey(hotkey.trim());
-      setSettings((s) => ({ ...s, hotkey: hotkey.trim() }));
-      setHotkeyMsg(t("settings.hotkey.saved"));
+      const info = await checkUpdate(version);
+      setUpdateInfo(info);
+      setUpdateMsg(info.hasUpdate ? t("about.updateAvailable", { version: info.latest }) : t("about.updateUpToDate"));
     } catch (e) {
-      setHotkeyMsg(t("settings.hotkey.error", { message: String(e) }));
+      setUpdateMsg(t("about.updateError", { message: String(e) }));
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -382,21 +596,7 @@ export default function Settings() {
           </div>
           <div className={row}>
             <span className={lbl}>{t("settings.hotkey")}</span>
-            <div className="flex items-center gap-2">
-              {hotkeyMsg && <span className="text-xs text-neutral-400">{hotkeyMsg}</span>}
-              <input
-                value={hotkey}
-                onChange={(e) => setHotkey(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && saveHotkey()}
-                className={inputCls + " font-mono"}
-              />
-              <button
-                onClick={saveHotkey}
-                className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
-              >
-                {t("settings.hotkey.apply")}
-              </button>
-            </div>
+            <HotkeyRecorder value={hotkey} defaultValue={DEFAULT_HOTKEY} onSave={saveHotkey} />
           </div>
         </Section>
 
@@ -513,6 +713,35 @@ export default function Settings() {
             <span className="text-[13px] text-neutral-500 dark:text-neutral-400">{version || "—"}</span>
           </div>
           <div className={row}>
+            <span className={lbl}>{t("about.help")}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setHelpOpen(true)}
+                className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-xs hover:bg-black/10 dark:hover:bg-white/20"
+              >
+                {t("help.open")}
+              </button>
+              <button
+                onClick={checkForUpdate}
+                disabled={checking}
+                className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-xs hover:bg-black/10 dark:hover:bg-white/20 disabled:opacity-50"
+              >
+                {checking ? t("about.checkingUpdate") : t("about.checkUpdate")}
+              </button>
+              {updateInfo?.hasUpdate && (
+                <button
+                  onClick={() => api.openUrl(updateInfo.url).catch(() => {})}
+                  className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
+                >
+                  {t("about.downloadUpdate")}
+                </button>
+              )}
+            </div>
+          </div>
+          {updateMsg && (
+            <p className="text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">{updateMsg}</p>
+          )}
+          <div className={row}>
             <span className={lbl}>{t("about.source")}</span>
             <button
               onClick={() => api.openUrl(REPO_URL).catch(() => {})}
@@ -541,12 +770,22 @@ export default function Settings() {
               {t("about.terms")}
             </button>
           </div>
+          <div className="rounded-xl bg-indigo-50 dark:bg-indigo-500/10 p-3 mt-2">
+            <h3 className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 mb-1">
+              {t("about.promise")}
+            </h3>
+            <p className="text-[13px] leading-6 text-indigo-700/90 dark:text-indigo-200/90">
+              {t("about.promiseDesc")}
+            </p>
+          </div>
         </Section>
 
         <p className="text-xs text-neutral-400 text-center pb-4">
           {t("settings.footer", { name: t("app.name") })}
         </p>
       </div>
+
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
 
       <LicenseGate license={license} />
     </div>
