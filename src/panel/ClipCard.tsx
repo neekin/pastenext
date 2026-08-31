@@ -192,7 +192,7 @@ export default function ClipCard({ clip, selected, index, boards, onClick, onDet
       {index < 10 && (
         <span
           title={`${t("clip.quickPasteHint")} ${index === 9 ? 0 : index + 1}`}
-          className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-neutral-900"
+          className="absolute top-[7px] left-1.5 w-5 h-5 rounded-full bg-neutral-800/90 dark:bg-neutral-200/90 text-white dark:text-neutral-900 text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-neutral-900 z-10"
         >
           {index === 9 ? 0 : index + 1}
         </span>
