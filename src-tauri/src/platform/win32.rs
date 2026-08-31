@@ -1,11 +1,11 @@
 use crate::model::{AppInfo, RawContent};
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HGLOBAL, POINT};
+use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, POINT};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
     OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::Ole::{CF_DIB, CF_HDROP, CF_UNICODETEXT};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
@@ -46,7 +46,7 @@ fn register_format(name: &str) -> Option<u32> {
 pub fn read_content() -> Option<RawContent> {
     with_clipboard(|| unsafe {
         // 1) 文件(CF_HDROP)
-        if let Ok(h) = GetClipboardData(CF_HDROP) {
+        if let Ok(h) = GetClipboardData(cf(CF_HDROP)) {
             if let Some(paths) = read_hdrop(h) {
                 if !paths.is_empty() {
                     return Some(RawContent::Files { paths });
@@ -56,7 +56,7 @@ pub fn read_content() -> Option<RawContent> {
 
         // 2) 图片:优先 "PNG" 注册格式,回退 CF_DIB 转 BMP 解码
         if let Some(fmt) = register_format("PNG") {
-            if let Ok(h) = GetClipboardData(CLIPBOARD_FMT(fmt)) {
+            if let Ok(h) = GetClipboardData(fmt) {
                 if let Some(bytes) = read_bytes(h) {
                     if !bytes.is_empty() {
                         return Some(RawContent::Image { bytes });
@@ -64,7 +64,7 @@ pub fn read_content() -> Option<RawContent> {
                 }
             }
         }
-        if let Ok(h) = GetClipboardData(CF_DIB) {
+        if let Ok(h) = GetClipboardData(cf(CF_DIB)) {
             if let Some(bytes) = read_bytes(h) {
                 if let Some(png) = dib_to_png(&bytes) {
                     return Some(RawContent::Image { bytes: png });
@@ -73,13 +73,13 @@ pub fn read_content() -> Option<RawContent> {
         }
 
         // 3) 文本 / 富文本("HTML Format")
-        let text = GetClipboardData(CF_UNICODETEXT)
+        let text = GetClipboardData(cf(CF_UNICODETEXT))
             .ok()
-            .and_then(read_wtext)
+            .and_then(|h| read_wtext(h))
             .unwrap_or_default();
         let html = register_format("HTML Format")
-            .and_then(|f| GetClipboardData(CLIPBOARD_FMT(f)).ok())
-            .and_then(read_bytes)
+            .and_then(|f| GetClipboardData(f).ok())
+            .and_then(|h| read_bytes(h))
             .and_then(|b| parse_cf_html(&b))
             .unwrap_or_default();
         if text.trim().is_empty() && html.trim().is_empty() {
@@ -92,9 +92,11 @@ pub fn read_content() -> Option<RawContent> {
     })
 }
 
-// GetClipboardData 的格式参数类型在 windows crate 中是 CLIPBOARD_FORMAT
-fn CLIPBOARD_FMT(v: u32) -> windows::Win32::System::Ole::CLIPBOARD_FORMAT {
-    windows::Win32::System::Ole::CLIPBOARD_FORMAT(v)
+// windows 0.61 中 GetClipboardData/SetClipboardData 直接接收 u32,而预定义常量(CF_*)是
+// CLIPBOARD_FORMAT(pub u16) 新类型,这里提取其底层值转为 u32 传入。
+#[inline]
+fn cf(fmt: windows::Win32::System::Ole::CLIPBOARD_FORMAT) -> u32 {
+    fmt.0 as u32
 }
 
 unsafe fn read_wtext(h: HANDLE) -> Option<String> {
@@ -124,15 +126,16 @@ unsafe fn read_bytes(h: HANDLE) -> Option<Vec<u8>> {
 
 unsafe fn read_hdrop(h: HANDLE) -> Option<Vec<String>> {
     let hdrop = windows::Win32::UI::Shell::HDROP(h.0);
-    let count = DragQueryFileW(hdrop, u32::MAX, PWSTR::null());
+    // windows 0.61:DragQueryFileW 第 3 参为 Option<&mut [u16]>;None 表示只查询数量/长度
+    let count = DragQueryFileW(hdrop, u32::MAX, None);
     let mut paths = Vec::new();
     for i in 0..count {
-        let len = DragQueryFileW(hdrop, i, PWSTR::null());
+        let len = DragQueryFileW(hdrop, i, None);
         if len == 0 {
             continue;
         }
         let mut buf = vec![0u16; (len + 1) as usize];
-        DragQueryFileW(hdrop, i, PWSTR(buf.as_mut_ptr()));
+        let _ = DragQueryFileW(hdrop, i, Some(&mut buf));
         buf.truncate(len as usize);
         paths.push(String::from_utf16_lossy(&buf));
     }
@@ -236,7 +239,7 @@ pub fn write_files(paths: &[String]) -> Result<(), String> {
         let h = GlobalAlloc(GMEM_MOVEABLE, total).map_err(|e| e.to_string())?;
         let ptr = GlobalLock(h) as *mut u8;
         if ptr.is_null() {
-            let _ = GlobalFree(h);
+            let _ = GlobalFree(Some(h));
             let _ = CloseClipboard();
             return Err("锁定内存失败".into());
         }
@@ -249,7 +252,7 @@ pub fn write_files(paths: &[String]) -> Result<(), String> {
         std::ptr::write_unaligned(ptr as *mut DROPFILES, df);
         std::ptr::copy_nonoverlapping(wide.as_ptr() as *const u8, ptr.add(df_size), wide.len() * 2);
         let _ = GlobalUnlock(h);
-        SetClipboardData(CF_HDROP, Some(HANDLE(h.0))).map_err(|e| e.to_string())?;
+        SetClipboardData(cf(CF_HDROP), Some(HANDLE(h.0))).map_err(|e| e.to_string())?;
         let _ = CloseClipboard();
     }
     Ok(())
@@ -265,7 +268,8 @@ fn key_input(vk: VIRTUAL_KEY, up: bool) -> INPUT {
                 dwFlags: if up {
                     KEYEVENTF_KEYUP
                 } else {
-                    windows::Win32::UI::Input::KeyboardAndMouse::KEYEVENTF_FLAGS(0)
+                    // windows 0.61 中类型名为 KEYBD_EVENT_FLAGS(元组结构体),旧名 KEYEVENTF_FLAGS 已不存在
+                    windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS(0)
                 },
                 time: 0,
                 dwExtraInfo: 0,

@@ -54,7 +54,10 @@ pub fn show_panel(app: &AppHandle) {
         let _ = win.set_size(PhysicalSize::new(ms.width, h));
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
-    let _ = app.show(); // 若应用曾被 hide,先恢复应用激活状态
+    // 若应用曾被 hide,先恢复应用激活状态。
+    // AppHandle::show() 是 macOS 专属 API(Tauri 2),其他平台没有这个方法。
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     let shown = win.show();
     let focused = win.set_focus();
     eprintln!("[show_panel] show={shown:?} focus={focused:?}");

@@ -529,6 +529,8 @@ pub fn hide_panel(app: AppHandle) {
 
 #[tauri::command]
 pub fn show_settings(app: AppHandle) {
+    // AppHandle::show() 只在 macOS 存在(Tauri 2),Windows 上直接显示窗口即可
+    #[cfg(target_os = "macos")]
     let _ = app.show();
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();

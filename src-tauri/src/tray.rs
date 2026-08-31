@@ -103,6 +103,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
 
 /// 打开设置窗口(托盘的「设置…」与「激活…」共用)
 fn open_settings(app: &AppHandle) {
+    // AppHandle::show() 是 macOS 专属 API(Tauri 2),Windows/Linux 无此方法,跳过即可
+    #[cfg(target_os = "macos")]
     let _ = app.show();
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
