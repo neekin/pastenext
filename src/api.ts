@@ -70,6 +70,7 @@ export const api = {
   requestAccessibility: () => invoke<boolean>("request_accessibility"),
   openAccessibilitySettings: () => invoke<void>("open_accessibility_settings"),
   hidePanel: () => invoke<void>("hide_panel"),
+  setPanelHeight: (height: number) => invoke<void>("set_panel_height", { height }),
   showSettings: () => invoke<void>("show_settings"),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
 };

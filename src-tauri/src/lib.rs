@@ -28,6 +28,11 @@ const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+V";
 /// 面板唤起前的前台应用(粘贴时恢复它的焦点)
 pub struct PreviousApp(pub Mutex<Option<AppInfo>>);
 
+/// 面板几何缓存:宽度在进入面板「之前」就按当前屏幕算好并记录下来,
+/// 之后每次唤起直接复用,避免 show() 时重复计算/窗口几何跳动带来的淡入抖动。
+/// 屏幕分辨率变化(换屏/改分辨率)时自动失效重算。
+pub struct PanelGeometry(pub Mutex<Option<(i32, i32, i32)>>); // (width, screen_h, key)
+
 pub fn show_panel(app: &AppHandle) {
     let Some(win) = app.get_webview_window("panel") else {
         eprintln!("[show_panel] panel window not found!");
@@ -51,6 +56,8 @@ pub fn show_panel(app: &AppHandle) {
         .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
         .or_else(|| win.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
+    // 进场滑入所需的几何参数(若有显示器):(x, start_y, final_y)
+    let mut slide_anim: Option<(i32, i32, i32)> = None;
     if let Some(m) = monitor {
         let mp = m.position();
         let ms = m.size();
@@ -58,8 +65,30 @@ pub fn show_panel(app: &AppHandle) {
         let h = win.outer_size().unwrap_or_default().height;
         let x = mp.x;
         let y = mp.y + ms.height as i32 - h as i32;
+        // 宽度在进入面板之前就算好并记录:同一屏幕分辨率下复用,避免每次 show 重算导致几何抖动
+        let geo_key = ms.width as i32;
+        let cached = app
+            .try_state::<PanelGeometry>()
+            .and_then(|s| s.0.lock().ok().map(|g| *g))
+            .flatten();
+        let need_update = match cached {
+            Some((w, sh, k)) => w != ms.width as i32 || sh != ms.height as i32 || k != geo_key,
+            None => true,
+        };
+        if need_update {
+            if let Some(state) = app.try_state::<PanelGeometry>() {
+                if let Ok(mut guard) = state.0.lock() {
+                    *guard = Some((ms.width as i32, ms.height as i32, geo_key));
+                }
+            }
+            eprintln!("[show_panel] cached panel width={}", ms.width);
+        }
         let _ = win.set_size(PhysicalSize::new(ms.width, h));
-        let _ = win.set_position(PhysicalPosition::new(x, y));
+        // 进场滑入:窗口先出现在「最终位置下方」,再由 animate_window_y 平滑升到最终位(OS 级位移动画)
+        let slide = ((h as f64) * 0.22).max(90.0) as i32;
+        let start_y = y + slide;
+        let _ = win.set_position(PhysicalPosition::new(x, start_y));
+        slide_anim = Some((x, start_y, y));
     }
     // 若应用曾被 hide,先恢复应用激活状态。
     // AppHandle::show() 是 macOS 专属 API(Tauri 2),其他平台没有这个方法。
@@ -69,13 +98,67 @@ pub fn show_panel(app: &AppHandle) {
     let focused = win.set_focus();
     eprintln!("[show_panel] show={shown:?} focus={focused:?}");
     let _ = app.emit("panel-shown", ());
+    // 启动进场滑入动画:窗口 Y 从 start_y 平滑升到 final_y
+    if let Some((x, start_y, final_y)) = slide_anim {
+        animate_window_y(app.clone(), x, start_y, final_y, 520);
+    }
 }
 
 pub fn hide_panel(app: &AppHandle) {
-    eprintln!("[hide_panel] hiding panel");
+    eprintln!("[hide_panel] hiding panel with slide-down");
     if let Some(win) = app.get_webview_window("panel") {
-        let _ = win.hide();
+        // 退场:先平滑下滑到下方,再隐藏窗口(与进场滑入对称)
+        if let Ok(pos) = win.outer_position() {
+            let cur_y = pos.y;
+            let x = pos.x;
+            let h = win.outer_size().unwrap_or_default().height;
+            let slide = ((h as f64) * 0.22).max(90.0) as i32;
+            let to_y = cur_y + slide;
+            let app2 = app.clone();
+            std::thread::spawn(move || {
+                let steps: u64 = 20;
+                let sleep = 200 / steps;
+                for i in 0..=steps {
+                    let t = i as f64 / steps as f64;
+                    let eased = t.powi(3); // easeInCubic: 加速离场,消除缓出(easeOut)在末尾拖尾造成的迟滞感
+                    let y = cur_y + ((to_y - cur_y) as f64 * eased) as i32;
+                    if let Some(w) = app2.get_webview_window("panel") {
+                        let _ = w.set_position(PhysicalPosition::new(x, y));
+                    }
+                    if i < steps {
+                        std::thread::sleep(std::time::Duration::from_millis(sleep));
+                    }
+                }
+                if let Some(w) = app2.get_webview_window("panel") {
+                    let _ = w.hide();
+                }
+            });
+        } else {
+            let _ = win.hide();
+        }
     }
+}
+
+/// OS 级窗口 Y 坐标位移动画:从 start_y 平滑升/降到 final_y。
+/// 纯 CSS 的 transform 只能移动「窗口内的内容」,无法让整个 OS 窗口沿 Y 轴移动;
+/// 真正的「从底部升起 / 沉下」必须在 Rust 侧逐帧 set_position 实现。
+fn animate_window_y(app: AppHandle, x: i32, start_y: i32, final_y: i32, duration_ms: u64) {
+    std::thread::spawn(move || {
+        let steps: u64 = 24;
+        let sleep = duration_ms / steps;
+        for i in 0..=steps {
+            let t = i as f64 / steps as f64;
+            // easeOutCubic:起步快、收尾缓,符合「滑入」的自然手感
+            let eased = 1.0 - (1.0 - t).powi(3);
+            let y = start_y + ((final_y - start_y) as f64 * eased) as i32;
+            if let Some(w) = app.get_webview_window("panel") {
+                let _ = w.set_position(PhysicalPosition::new(x, y));
+            }
+            if i < steps {
+                std::thread::sleep(std::time::Duration::from_millis(sleep));
+            }
+        }
+    });
 }
 
 pub(crate) fn toggle_panel(app: &AppHandle) {
@@ -184,6 +267,7 @@ pub fn run() {
             app.manage(HotkeyState(Mutex::new(registered)));
             app.manage(PreviousApp(Mutex::new(None)));
             app.manage(QuickPasteState(Mutex::new(Vec::new())));
+            app.manage(PanelGeometry(Mutex::new(None)));
 
             // 根据设置注册快速粘贴全局快捷键(默认开启)
             let qp_enabled = app
@@ -202,6 +286,24 @@ pub fn run() {
             // 面板必须出现在用户当前所在的 Space(剪贴板面板的标准行为)
             if let Some(panel) = app.get_webview_window("panel") {
                 let _ = panel.set_visible_on_all_workspaces(true);
+                // 启动时就按主屏算好面板宽度(满屏)并记录,让 WebView 在隐藏状态下即以全宽初始化,
+                // 之后每次唤起只是 unhide,不再 resize → 不会出现首帧 860 宽 / 重排导致的淡入抖动
+                if let Ok(Some(m)) = app.primary_monitor() {
+                    let ms = m.size();
+                    let h = panel.outer_size().unwrap_or_default().height;
+                    let mp = m.position();
+                    let _ = panel.set_size(PhysicalSize::new(ms.width, h));
+                    let _ = panel.set_position(PhysicalPosition::new(
+                        mp.x,
+                        mp.y + ms.height as i32 - h as i32,
+                    ));
+                    if let Some(state) = app.try_state::<PanelGeometry>() {
+                        if let Ok(mut guard) = state.0.lock() {
+                            *guard = Some((ms.width as i32, ms.height as i32, ms.width as i32));
+                        }
+                    }
+                    eprintln!("[setup] preset panel width={}", ms.width);
+                }
             }
 
             // 托盘图标可隐藏(设置里切换)
@@ -273,6 +375,7 @@ pub fn run() {
             commands::request_accessibility,
             commands::open_accessibility_settings,
             commands::hide_panel,
+            commands::set_panel_height,
             commands::show_settings,
             commands::open_url,
         ])

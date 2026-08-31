@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, onClipsUpdated, onPanelShown } from "../api";
 import { useI18n } from "../i18n";
 import type { Board, Clip, ClipKind } from "../types";
@@ -91,14 +91,10 @@ export default function Panel() {
     return always ? !held : held;
   }, []);
 
-  // 关闭面板:先播放淡出退场动画,动画结束后再真正隐藏窗口,与进场对称
-  const EXIT_MS = 200;
+  // 退场:直接交给 Rust 在 OS 窗口级做下滑(见 src-tauri/src/lib.rs hide_panel),
+  // 与进场的窗口级上滑对称。这里不再等 CSS 退场动画,否则会有 230ms 的空档再下滑。
   const requestHide = useCallback(() => {
-    setEntered(false);
-    setLeaving(true);
-    window.setTimeout(() => {
-      api.hidePanel().catch(() => {});
-    }, EXIT_MS);
+    api.hidePanel().catch(() => {});
   }, []);
 
   const pasteClip = useCallback((id: number, plain: boolean = false) => {
@@ -108,12 +104,16 @@ export default function Panel() {
     }
     lastPasteRef.current = { id, at: now };
     playTick();
-    // 粘贴成功后淡出关闭(失败则保留面板以便重试)
+    // 粘贴成功后滑出关闭(失败则保留面板以便重试)
     api.pasteClip(id, plain).then(() => requestHide()).catch(() => {});
   }, [playTick, requestHide]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const reloadRef = useRef<() => void>(() => {});
+  // 高度自适应:测量内容自然高度(搜索栏 + 提示条 + 看板栏 + 卡片流),
+  // 交给 Rust 把窗口高度调成恰好撑满,避免出现纵向滚动条
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastHeightRef = useRef<number>(0);
 
   const reload = useCallback(() => {
     api
@@ -125,6 +125,23 @@ export default function Panel() {
       .catch(() => {});
   }, [query, kind, boardId]);
   reloadRef.current = reload;
+
+  // 高度自适应:把内容自然高度交给 Rust 调窗口高度,让内容刚好撑满、不出纵向滚动条。
+  // 只有高度真的变了(>0.5px)才下发,避免后台每次剪贴板更新都触发 IPC 与窗口抖动。
+  const fitHeight = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height;
+    if (!h) return;
+    if (Math.abs(h - lastHeightRef.current) < 0.5) return;
+    lastHeightRef.current = h;
+    api.setPanelHeight(Math.ceil(h)).catch(() => {});
+  }, []);
+
+  // 内容/提示条/看板变化后重新贴合高度(布局阶段同步测量,先于绘制,不产生视觉跳动)
+  useLayoutEffect(() => {
+    fitHeight();
+  }, [fitHeight, clips.length, boardId, kind, query, axTrusted, license.phase, addingBoard]);
 
   useEffect(() => {
     reload();
@@ -143,22 +160,20 @@ export default function Panel() {
   useEffect(() => {
     const u1 = onClipsUpdated(() => reloadRef.current());
     const u2 = onPanelShown(() => {
-      // 先立即隐藏(entered/leaving 都清掉),屏蔽窗口几何 resize 那一两帧(860 宽 → 全宽)带来的滚动条闪烁
       setEntered(false);
       setLeaving(false);
-      // 等两帧,确保 WebView 已按全宽重排,再揭幕并播放进场动画
+      // 先同步触发内容加载,等数据就绪后再揭幕,避免面板滑入时内容跳动
+      reloadRef.current();
+      loadCfg();
+      licenseReloadRef.current();
+      // 等两帧,确保 WebView 已按全宽重排且数据已渲染,再揭幕播放进场动画
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
+          fitHeight();
           setEntered(true);
           setAnimKey((k) => k + 1);
-          reloadRef.current();
-          loadCfg();
-          // 应用可能连续运行好几天不重启,每次唤起面板都重新判定一次试用阶段
-          licenseReloadRef.current();
           searchRef.current?.focus();
           searchRef.current?.select();
-          // 每次唤起都刷新权限状态:授权后提示条自动消失;
-          // 未授权时本会话内自动弹出一次系统原生授权提示
           if (/Mac|iPhone|iPad/.test(navigator.platform)) {
             api
               .getAccessibilityTrusted()
@@ -283,6 +298,9 @@ export default function Panel() {
         key={animKey}
         className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}
       >
+        {/* 高度测量容器:自然高度 = 搜索栏 + 提示条 + 看板栏 + 卡片流,
+            测量它并把结果交给 Rust 设置窗口高度,使内容刚好撑满、无纵向滚动条 */}
+        <div ref={contentRef} className="flex flex-col">
         {/* 搜索 + 类型筛选 */}
         <div className="flex items-center gap-2 px-4 pt-3.5">
           <input
@@ -391,8 +409,10 @@ export default function Panel() {
           )}
         </div>
 
-        {/* 卡片流 */}
-        <div className="flex-1 flex items-stretch gap-3 px-4 py-3 overflow-x-auto">
+        {/* 卡片流:去掉 flex-1 让它保持自然高度(卡片 224 + 上下内边距 24 = 248),
+            并显式 overflow-y-hidden —— CSS 规则下 overflow-x-auto 会把另一轴从 visible
+            隐式提升为 auto,不显式关掉就会冒出纵向滚动条 */}
+        <div className="flex items-stretch gap-3 px-4 py-3 overflow-x-auto overflow-y-hidden min-h-[248px]">
           {clips.length === 0 && (
             <div className="m-auto text-sm text-neutral-400 dark:text-neutral-500">
               {t("panel.empty")}
@@ -412,6 +432,7 @@ export default function Panel() {
               }}
             />
           ))}
+        </div>
         </div>
       </div>
 

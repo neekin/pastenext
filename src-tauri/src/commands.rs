@@ -2,7 +2,7 @@ use crate::db::Db;
 use crate::model::{AppInfo, Board, Clip, ClipKind, Tag};
 use crate::platform;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 use tauri_plugin_opener::OpenerExt;
@@ -553,6 +553,39 @@ pub fn open_accessibility_settings() {
 pub fn hide_panel(app: AppHandle) {
     crate::hide_panel(&app);
 }
+
+/// 面板高度自适应:前端按内容自然高度测量后回传,这里把窗口高度调成恰好撑满内容,
+/// 保持满屏宽 + 贴底,从而不会出现纵向滚动条。
+/// 安全边界:不低于 240px,且不超过当前屏幕高度的 85%。
+#[tauri::command]
+pub fn set_panel_height(app: AppHandle, height: f64) {
+    let Some(win) = app.get_webview_window("panel") else {
+        return;
+    };
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(m) = monitor else { return };
+    let mp = m.position();
+    let ms = m.size();
+    // ⚠️ 单位换算:前端 getBoundingClientRect() 量的是 CSS(逻辑)像素,
+    // 而 Tauri 的窗口尺寸/位置用的是物理像素。Retina(scale=2)下若直接把 CSS 值
+    // 当物理值用,窗口会只有内容的一半高 → 内容被裁掉(显示不全)。
+    // 因此这里全部换算到 CSS 像素做夹取,尺寸用 LogicalSize(由 Tauri 自动换算),
+    // 位置用物理像素并乘回 scale。
+    let scale = win.scale_factor().unwrap_or(1.0).max(0.1);
+    let screen_h_css = ms.height as f64 / scale;
+    let h_css = height.clamp(240.0, (screen_h_css * 0.85).max(240.0));
+    let w_css = win.outer_size().unwrap_or_default().width as f64 / scale;
+    let _ = win.set_size(LogicalSize::new(w_css, h_css));
+    let h_phys = (h_css * scale) as i32;
+    let y = mp.y + ms.height as i32 - h_phys;
+    let _ = win.set_position(PhysicalPosition::new(mp.x, y));
+}
+
 
 #[tauri::command]
 pub fn show_settings(app: AppHandle) {

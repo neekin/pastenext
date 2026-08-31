@@ -2,40 +2,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@keyframes panel-slide-up {
-  from {
-    transform: translateY(16px) scale(0.99);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes panel-slide-down {
-  from {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
-  to {
-    transform: translateY(12px) scale(0.99);
-    opacity: 0;
-  }
-}
-
+/* 进场/退场的「从底部升起」改由 Rust 在 OS 窗口级逐帧 set_position 完成:
+   真正的位移发生在整个 OS 窗口上,而非窗口内的内容。
+   因此这里不再对 .panel-surface 做任何 translateY,否则会与窗口动画叠加成
+   双重位移、且两条缓动曲线不一致会显得错位。内容保持原位随窗口一起升起即可。 */
 .panel-surface {
-  transform-origin: bottom center;
-  opacity: 0;
-  will-change: transform, opacity;
-}
-
-.panel-surface.entered {
-  animation: panel-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-.panel-surface.leaving {
-  animation: panel-slide-down 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  transform: translateY(0);
 }
 
 body {

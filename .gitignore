@@ -12,3 +12,6 @@ src-tauri/gen
 # 授权密钥:发号用的生产密钥绝不能进仓库(见 .workbuddy/artifacts)
 .env
 .env.license
+
+# 纯静态注册机(前端版):本地/内用,密钥在浏览器里,故意不进仓库
+keygen-web/
