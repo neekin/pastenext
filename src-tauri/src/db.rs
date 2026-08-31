@@ -55,12 +55,68 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 "#;
 
+/// 数据库 schema 版本号。每次改动 SCHEMA(加表、加列、改索引)时:
+/// 1. 把 SCHEMA_VERSION 加 1
+/// 2. 在 MIGRATIONS 末尾追加一条从旧版本升级到新版本的 SQL
+/// 3. 启动时 run_migrations 会自动按顺序执行,不会丢用户数据
+const SCHEMA_VERSION: u32 = 1;
+
+/// MIGRATIONS[i] 表示从版本 i+1 升级到版本 i+2 的 SQL。
+/// MIGRATIONS[0] 是基线(0 → 1):当前 SCHEMA 就是版本 1,老库直接升版本号即可。
+const MIGRATIONS: &[&str] = &[""];
+
+/// 执行数据库迁移。每次打开数据库时调用,确保老用户的数据能平滑升级。
+fn run_migrations(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), String> {
+    let current: u32 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    if current == SCHEMA_VERSION {
+        return Ok(());
+    }
+    if current > SCHEMA_VERSION {
+        return Err(format!(
+            "数据库版本 {current} 高于应用支持的 {SCHEMA_VERSION}。\n\
+             你可能用过更新的 PasteNext 版本打开过该数据库,请先升级应用。"
+        ));
+    }
+
+    // 迁移前先备份原文件,极端情况下还能手动恢复
+    if current > 0 {
+        let backup = db_path.with_extension(format!("db.v{current}.bak"));
+        if let Err(e) = std::fs::copy(db_path, &backup) {
+            eprintln!("[db] 迁移前备份失败: {e}");
+        } else {
+            eprintln!("[db] 已备份到 {}", backup.display());
+        }
+    }
+
+    for v in current..SCHEMA_VERSION {
+        let sql = MIGRATIONS
+            .get(v as usize)
+            .copied()
+            .ok_or_else(|| format!("缺少从版本 {v} 到 {} 的迁移脚本", v + 1))?;
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        if !sql.is_empty() {
+            conn.execute_batch(sql)
+                .map_err(|e| format!("数据库迁移 {v} → {} 失败: {e}", v + 1))?;
+        }
+        conn.pragma_update(None, "user_version", v + 1)
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    eprintln!("[db] schema migrated {} → {}", current, SCHEMA_VERSION);
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Self, String> {
         let conn = rusqlite::Connection::open(path).map_err(|e| e.to_string())?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", true).ok();
         conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        run_migrations(&conn, path).map_err(|e| e.to_string())?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
