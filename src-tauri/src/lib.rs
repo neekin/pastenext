@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod i18n;
+mod portable;
 mod license;
 mod model;
 mod monitor;
@@ -131,7 +132,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
+            let dir = portable::resolve_data_dir(app.handle());
             std::fs::create_dir_all(&dir)?;
             let db = Db::open(&dir.join("paste-next.db")).map_err(std::io::Error::other)?;
             db.ensure_defaults();

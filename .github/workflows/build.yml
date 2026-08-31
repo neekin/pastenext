@@ -57,9 +57,10 @@ jobs:
         run: pnpm tauri build --target ${{ matrix.target }}
 
       - name: Package portable zip (Windows)
-        # 解压即用的便携版:把主程序 exe 与同目录运行时 dll(如 WebView2Loader)打成一个 zip,
-        # 无需安装器、不改注册表。数据仍落在系统 AppData(标准行为),如需"数据随程序走"的
-        # 真·便携模式需额外代码,列为后续可选增强。
+        # 解压即用的便携版:把主程序 exe(已统一命名为 PasteNext.exe)打成一个 zip,
+        # 无需安装器、不改注册表。真·便携模式(数据随程序走)由运行时判定:
+        # 在 exe 同级目录放一个名为 portable.mode 的标记文件,应用即把数据库与图片缓存
+        # 写入 exe 同级的 Data/ 目录,而非系统 AppData;不放标记则行为与安装版一致。
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -74,6 +75,9 @@ jobs:
           # 重命名为 PasteNext.exe,与安装版(productName=PasteNext)保持一致
           $src = Join-Path $tmp "paste-next.exe"
           if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path $tmp "PasteNext.exe") -Force }
+          # 让"便携版"默认即真·便携:附带标记文件,运行期数据落到 exe 同级 Data/。
+          # 用户删掉该文件即可回退到系统 AppData(与普通安装版一致)。
+          New-Item -ItemType File -Force -Path (Join-Path $tmp "portable.mode") | Out-Null
           # 复制同目录运行时 dll(如 WebView2Loader),没有则跳过
           Get-ChildItem "$rel/*.dll" | Copy-Item -Destination $tmp/ -ErrorAction SilentlyContinue
           Compress-Archive -Path "$tmp/*" -DestinationPath "PasteNext-Windows-x64-portable.zip" -Force

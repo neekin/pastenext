@@ -136,10 +136,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
 }
 
 fn images_dir(app: &AppHandle) -> std::path::PathBuf {
-    app.path()
-        .app_data_dir()
-        .map(|d| d.join("images"))
-        .unwrap_or_else(|_| std::env::temp_dir().join("paste-clone-images"))
+    crate::portable::resolve_data_dir(app).join("images")
 }
 
 fn now_ms() -> u128 {
