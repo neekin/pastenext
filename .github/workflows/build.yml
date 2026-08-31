@@ -66,8 +66,12 @@ jobs:
           $rel = "src-tauri/target/${{ matrix.target }}/release"
           $tmp = "portable-tmp"
           New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-          Copy-Item "$rel/PasteNext.exe" $tmp/
-          Get-ChildItem "$rel/*.dll" | Copy-Item -Destination $tmp/
+          # 主程序 exe 名称取决于 Cargo 包名(paste-next),用通配避免写死
+          $exes = Get-ChildItem "$rel/*.exe"
+          if ($exes.Count -eq 0) { throw "release 目录未找到主程序 exe" }
+          $exes | Copy-Item -Destination $tmp/
+          # 复制同目录运行时 dll(如 WebView2Loader),没有则跳过
+          Get-ChildItem "$rel/*.dll" | Copy-Item -Destination $tmp/ -ErrorAction SilentlyContinue
           Compress-Archive -Path "$tmp/*" -DestinationPath "PasteNext-Windows-x64-portable.zip" -Force
 
       - name: Upload artifacts (macOS)
