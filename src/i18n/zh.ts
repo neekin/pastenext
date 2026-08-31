@@ -51,6 +51,8 @@ export const zhCN = {
   "settings.trayLeftAction": "托盘图标左键",
   "settings.trayLeftAction.panel": "唤起面板（右键菜单）",
   "settings.trayLeftAction.menu": "打开菜单（右键唤起面板）",
+  "settings.resetAppearance": "恢复默认外观",
+  "settings.resetAppearance.desc": "若把 Dock / 托盘开关切乱导致找不到入口，点击一键恢复：隐藏 Dock + 显示菜单栏图标 + 左键唤起面板（立即生效）",
   "settings.autoPaste": "粘贴时自动执行 Cmd/Ctrl+V",
   "settings.quickPaste": "快速粘贴快捷键 ⌘⇧1–0（直接粘贴最近 10 条，不用开面板）",
   "settings.quickPaste.desc": "按 ⌘⇧1 粘贴第 1 条，⌘⇧2 第 2 条……⌘⇧0 第 10 条",

@@ -162,6 +162,11 @@ impl Db {
         );
     }
 
+    pub fn delete_setting(&self, key: &str) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute("DELETE FROM settings WHERE key = ?1", params![key]);
+    }
+
     pub fn all_settings(&self) -> std::collections::HashMap<String, String> {
         let conn = self.conn.lock().unwrap();
         let Ok(mut stmt) = conn.prepare("SELECT key, value FROM settings") else {

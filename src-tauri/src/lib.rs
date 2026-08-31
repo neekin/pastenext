@@ -263,6 +263,7 @@ pub fn run() {
             commands::set_show_dock_icon,
             commands::set_show_tray_icon,
             commands::set_tray_left_action,
+            commands::reset_appearance,
             commands::get_excluded_apps,
             commands::add_excluded_app,
             commands::remove_excluded_app,

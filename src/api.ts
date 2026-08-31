@@ -60,6 +60,7 @@ export const api = {
   setShowDockIcon: (show: boolean) => invoke<void>("set_show_dock_icon", { show }),
   setShowTrayIcon: (show: boolean) => invoke<void>("set_show_tray_icon", { show }),
   setTrayLeftAction: (action: string) => invoke<void>("set_tray_left_action", { action }),
+  resetAppearance: () => invoke<void>("reset_appearance"),
   getExcludedApps: () => invoke<string[]>("get_excluded_apps"),
   addExcludedApp: (app: string) => invoke<void>("add_excluded_app", { app }),
   removeExcludedApp: (app: string) => invoke<void>("remove_excluded_app", { app }),

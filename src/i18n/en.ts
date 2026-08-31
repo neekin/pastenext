@@ -51,6 +51,8 @@ export const en = {
   "settings.trayLeftAction": "Tray left click action",
   "settings.trayLeftAction.panel": "Show panel (right click menu)",
   "settings.trayLeftAction.menu": "Open menu (right click panel)",
+  "settings.resetAppearance": "Restore default appearance",
+  "settings.resetAppearance.desc": "If you've toggled Dock / tray settings into a state where the entry point is lost, click to restore defaults: hide Dock + show menu bar icon + left-click shows panel (takes effect immediately)",
   "settings.autoPaste": "Auto send Cmd/Ctrl+V after selecting",
   "settings.quickPaste": "Quick paste shortcuts ⌘⇧1–0 (paste recent 10 clips without opening the panel)",
   "settings.quickPaste.desc": "⌘⇧1 pastes the 1st clip, ⌘⇧2 the 2nd… ⌘⇧0 the 10th",

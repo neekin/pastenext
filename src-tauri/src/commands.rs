@@ -391,6 +391,34 @@ pub fn set_tray_left_action(app: AppHandle, action: String) -> Result<(), String
     Ok(())
 }
 
+/// 一键恢复默认外观:Dock 隐藏(纯菜单栏应用) + 托盘图标显示 + 左键唤起面板。
+/// 用于用户把 Dock/托盘开关切乱后找不到托盘入口的场景,立即生效。
+#[tauri::command]
+pub fn reset_appearance(app: AppHandle) -> Result<(), String> {
+    let db = app.state::<Db>();
+    db.delete_setting("show_dock_icon");
+    db.delete_setting("show_tray_icon");
+    db.delete_setting("tray_left_action");
+
+    // 默认隐藏 Dock(菜单栏应用)
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory)
+        .map_err(|e| e.to_string())?;
+
+    // 默认托盘左键唤起面板
+    if let Some(s) = app.try_state::<TrayPrefs>() {
+        *s.0.lock().unwrap() = "panel".into();
+    }
+    let tray = app.state::<TrayState>();
+    let guard = tray.0.lock().unwrap();
+    if let Some(t) = guard.as_ref() {
+        t.set_visible(true).map_err(|e| e.to_string())?;
+        t.set_show_menu_on_left_click(false)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_excluded_apps(db: State<Db>) -> Vec<String> {
     db.get_excluded_apps()

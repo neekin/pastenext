@@ -595,6 +595,21 @@ export default function Settings() {
               <option value="menu">{t("settings.trayLeftAction.menu")}</option>
             </select>
           </div>
+          <div className="space-y-2">
+            <div className={row}>
+              <span className={lbl}>{t("settings.resetAppearance")}</span>
+              <button
+                onClick={async () => {
+                  await api.resetAppearance().catch(() => {});
+                  api.getSettings().then(setSettings).catch(() => {});
+                }}
+                className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
+              >
+                {t("settings.hotkey.reset")}
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("settings.resetAppearance.desc")}</p>
+          </div>
           <div className={row}>
             <span className={lbl}>{t("settings.autoPaste")}</span>
             <input
