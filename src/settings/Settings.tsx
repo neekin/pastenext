@@ -7,11 +7,11 @@ import { useI18n, type Locale } from "../i18n";
 import LicenseGate from "../license/LicenseGate";
 import { useLicense } from "../license/useLicense";
 
-const REPO_URL = "https://github.com/neekin/pastenext";
-const PRIVACY_URL = `${REPO_URL}/blob/main/PRIVACY.md`;
-const TERMS_URL = `${REPO_URL}/blob/main/TERMS.md`;
+const SITE_URL = "https://neekin.github.io/pastenext";
+const PRIVACY_URL = SITE_URL;
+const TERMS_URL = SITE_URL;
 // 授权信息还没拉回来时的兜底购买入口,拉到之后以 Rust 侧的 purchase_url 为准
-const PURCHASE_URL = `${REPO_URL}#buy`;
+const PURCHASE_URL = `${SITE_URL}#buy`;
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -214,6 +214,31 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <p className="text-[13px] leading-6 text-indigo-700/90 dark:text-indigo-200/90">
             {t("help.promiseDesc")}
           </p>
+        </div>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.faq")}
+          </h3>
+          <p className="text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">{t("help.faqDesc")}</p>
+        </div>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.tips")}
+          </h3>
+          <ul className="text-[13px] text-neutral-600 dark:text-neutral-300 space-y-1 list-disc list-inside">
+            <li>{t("help.tipSearch")}</li>
+            <li>{t("help.tipBoard")}</li>
+            <li>{t("help.tipTag")}</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 mb-1">
+            {t("help.contact")}
+          </h3>
+          <p className="text-[13px] leading-6 text-neutral-600 dark:text-neutral-300">{t("help.contactDesc")}</p>
         </div>
 
         <button
@@ -741,15 +766,6 @@ export default function Settings() {
           {updateMsg && (
             <p className="text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">{updateMsg}</p>
           )}
-          <div className={row}>
-            <span className={lbl}>{t("about.source")}</span>
-            <button
-              onClick={() => api.openUrl(REPO_URL).catch(() => {})}
-              className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-xs hover:bg-black/10 dark:hover:bg-white/20"
-            >
-              {t("about.repo")}
-            </button>
-          </div>
           <div>
             <div className={lbl}>{t("about.licenses")}</div>
             <p className="mt-1 text-[11px] leading-5 text-neutral-400 dark:text-neutral-500">

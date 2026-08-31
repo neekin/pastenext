@@ -44,7 +44,7 @@ const MAIL_SECRET: &str = match option_env!("PASTENEXT_MAIL_SECRET") {
 /// 购买页地址。同样支持编译期覆盖。
 pub const PURCHASE_URL: &str = match option_env!("PASTENEXT_PURCHASE_URL") {
     Some(s) if !s.is_empty() => s,
-    _ => "https://github.com/neekin/pastenext#buy",
+    _ => "https://neekin.github.io/pastenext#buy",
 };
 
 const KEY_VERSION: u8 = 1;

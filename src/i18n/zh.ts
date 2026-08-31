@@ -110,8 +110,6 @@ export const zhCN = {
   // About
   "about.title": "关于",
   "about.version": "版本",
-  "about.source": "源代码",
-  "about.repo": "打开仓库",
   "about.licenses": "第三方开源许可",
   "about.licenses.desc": "本软件基于以下开源组件构建:Tauri(MIT / Apache-2.0)、React(MIT)、Vite(MIT)、Tailwind CSS(MIT)、DOMPurify(MPL-2.0 / Apache-2.0)、rusqlite(MIT)、SQLite(公有领域)、arboard(MIT / Apache-2.0)、image(MIT / Apache-2.0)、sha2(MIT / Apache-2.0)、sys-locale(MIT / Apache-2.0)。完整许可证文本见各组件仓库。",
   "about.privacy": "隐私政策",
@@ -141,6 +139,14 @@ export const zhCN = {
   "help.trialDesc": "新用户有 7 天免费试用，激活前完全不打扰；购买序列号后永久激活，可换机用同一邮箱 + 序列号复用。",
   "help.promise": "买断制承诺",
   "help.promiseDesc": "一次性买断、永久授权。我们承诺：永远不会改为订阅制。",
+  "help.faq": "常见问题",
+  "help.faqDesc": "所有剪贴板数据都只保存在你本机，不会上传任何服务器，也无需登录账号。在 macOS 上若首次打开提示「已损坏」，在终端执行 xattr -cr /Applications/PasteNext.app 即可——这是未做 Apple 公证导致，不影响数据安全。图片与文件类型的剪贴板会原样保存在本地数据目录。",
+  "help.tips": "使用技巧",
+  "help.tipSearch": "顶部搜索框可按文字与来源应用实时过滤；方向键浏览、回车粘贴、⌘/Ctrl+数字快速粘贴第 N 条。",
+  "help.tipBoard": "用「看板」按项目或场景分组剪贴板，双击标签页可重命名，长按卡片可移动到其它看板。",
+  "help.tipTag": "在编辑面板给常用片段打标签，输入标签名回车即可添加，方便日后检索。",
+  "help.contact": "反馈与联系",
+  "help.contactDesc": "使用中遇到问题或有功能建议，欢迎通过官方网站或邮件与我们联系，我们重视每一条反馈。",
 
   // Detail drawer
   "detail.title": "编辑条目",

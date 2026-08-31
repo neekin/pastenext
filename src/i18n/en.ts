@@ -110,8 +110,6 @@ export const en = {
   // About
   "about.title": "About",
   "about.version": "Version",
-  "about.source": "Source code",
-  "about.repo": "Open repository",
   "about.licenses": "Third-party licenses",
   "about.licenses.desc": "This app is built on open-source components: Tauri (MIT / Apache-2.0), React (MIT), Vite (MIT), Tailwind CSS (MIT), DOMPurify (MPL-2.0 / Apache-2.0), rusqlite (MIT), SQLite (public domain), arboard (MIT / Apache-2.0), image (MIT / Apache-2.0), sha2 (MIT / Apache-2.0) and sys-locale (MIT / Apache-2.0). Full license texts are available in each project's repository.",
   "about.privacy": "Privacy Policy",
@@ -141,6 +139,14 @@ export const en = {
   "help.trialDesc": "New users get a 7-day free trial with zero nagging. Buy a serial to activate permanently; reuse the same email + serial on another machine.",
   "help.promise": "Purchase promise",
   "help.promiseDesc": "One-time purchase, lifetime license. We promise: we will never switch to a subscription model.",
+  "help.faq": "FAQ",
+  "help.faqDesc": "All clipboard data is stored only on your device — nothing is uploaded to any server and no account is required. On macOS, if you see a \"damaged\" warning on first launch, run xattr -cr /Applications/PasteNext.app in Terminal. This is because the app is not Apple-notarized and does not affect data safety. Image and file clips are kept as-is in the local data folder.",
+  "help.tips": "Tips",
+  "help.tipSearch": "The search box filters by text and source app in real time. Use arrow keys to browse, Enter to paste, and ⌘/Ctrl + number to paste the Nth clip.",
+  "help.tipBoard": "Use Boards to group clips by project or context. Double-click a board tab to rename it; long-press a card to move it to another board.",
+  "help.tipTag": "Tag frequently used snippets from the edit panel — type a tag name and press Enter to add it for easy retrieval later.",
+  "help.contact": "Feedback & contact",
+  "help.contactDesc": "If you hit a problem or have a feature idea, reach out via the official website or email. We read every message.",
 
   // Detail drawer
   "detail.title": "Edit Clip",
