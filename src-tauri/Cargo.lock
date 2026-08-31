@@ -2672,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "paste-next"
-version = "1.0.2"
+version = "1.0.6"
 dependencies = [
  "arboard",
  "image",
