@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import DOMPurify from "dompurify";
 import { api } from "../api";
 import { useI18n } from "../i18n";
@@ -8,9 +8,13 @@ interface Props {
   clip: Clip;
   boards: Board[];
   onClose: () => void;
+  /** 来源卡片在视口中的位置,用于把编辑浮层锚定到卡片所在列(而非右侧整高抽屉) */
+  anchor: DOMRect | null;
+  /** 浮层根节点 ref,供 Panel 做"点击外部关闭"命中检测 */
+  rootRef?: RefObject<HTMLDivElement>;
 }
 
-export default function DetailDrawer({ clip, boards, onClose }: Props) {
+export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }: Props) {
   const { t } = useI18n();
   const [cur, setCur] = useState<Clip>(clip);
   const [text, setText] = useState(clip.text ?? "");
@@ -40,8 +44,27 @@ export default function DetailDrawer({ clip, boards, onClose }: Props) {
 
   const editable = cur.kind === "text" || cur.kind === "rich_text";
 
+  // 锚定到来源卡片所在列:随卡片 x 定位、占满窗口高度,点击外部由 Panel 的
+  // mousedown 监听关闭。窗口仅 380px 高,整高浮层既有足够编辑空间,又不会被裁切。
+  useLayoutEffect(() => {
+    const el = rootRef?.current;
+    const parent = el?.parentElement;
+    if (!el || !anchor || !parent) return;
+    const c = parent.getBoundingClientRect();
+    const W = Math.min(340, c.width - 16);
+    let left = anchor.left - c.left;
+    left = Math.max(8, Math.min(left, c.width - W - 8));
+    el.style.width = `${W}px`;
+    el.style.left = `${left}px`;
+    el.style.top = "8px";
+    el.style.bottom = "8px";
+  }, [anchor, rootRef]);
+
   return (
-    <div className="absolute inset-y-0 right-0 w-[340px] z-50 flex flex-col rounded-l-2xl bg-white dark:bg-neutral-900 ring-1 ring-black/10 dark:ring-white/15 shadow-2xl overflow-hidden">
+    <div
+      ref={rootRef}
+      className="absolute z-50 flex flex-col rounded-2xl bg-white dark:bg-neutral-900 ring-1 ring-black/10 dark:ring-white/15 shadow-2xl overflow-hidden"
+    >
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
         <div className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{t("detail.title")}</div>
         <div className="flex items-center gap-2">

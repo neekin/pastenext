@@ -15,6 +15,9 @@ export default function Panel() {
   const [boardId, setBoardId] = useState<number | null>(null); // null = 历史
   const [selected, setSelected] = useState(0);
   const [detail, setDetail] = useState<Clip | null>(null);
+  // 编辑浮层的锚点(来源卡片在视口中的位置)与根节点 ref,用于把浮层锚定到卡片列、并做"点外部关闭"命中检测
+  const [detailAnchor, setDetailAnchor] = useState<DOMRect | null>(null);
+  const detailRootRef = useRef<HTMLDivElement>(null);
   const [addingBoard, setAddingBoard] = useState(false);
   const [newBoard, setNewBoard] = useState("");
   const [animKey, setAnimKey] = useState(0);
@@ -163,8 +166,10 @@ export default function Panel() {
       hadFocus = true;
     };
     const onBlur = () => {
-      if (hadFocus && !detail) {
+      if (hadFocus) {
         hadFocus = false;
+        setDetail(null);
+        setDetailAnchor(null);
         api.hidePanel().catch(() => {});
       }
     };
@@ -174,6 +179,21 @@ export default function Panel() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
+  }, [detail]);
+
+  // 编辑抽屉打开时,点击抽屉以外的区域(空白 / 其它卡片)关闭抽屉。
+  // 用 capture 阶段拦截,命中检测以抽屉根节点为准,避免误伤抽屉内部交互。
+  useEffect(() => {
+    if (!detail) return;
+    const onDown = (e: MouseEvent) => {
+      const node = e.target as Node;
+      if (detailRootRef.current && !detailRootRef.current.contains(node)) {
+        setDetail(null);
+        setDetailAnchor(null);
+      }
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
   }, [detail]);
 
   const addBoard = async () => {
@@ -361,7 +381,10 @@ export default function Panel() {
               index={i}
               boards={boards}
               onClick={(e) => pasteClip(c.id, plainFor(e))}
-              onDetail={() => setDetail(c)}
+              onDetail={(rect) => {
+                setDetailAnchor(rect);
+                setDetail(c);
+              }}
             />
           ))}
         </div>
@@ -371,8 +394,11 @@ export default function Panel() {
         <DetailDrawer
           clip={detail}
           boards={boards}
+          anchor={detailAnchor}
+          rootRef={detailRootRef}
           onClose={() => {
             setDetail(null);
+            setDetailAnchor(null);
             reload();
           }}
         />

@@ -46,7 +46,8 @@ interface Props {
   index: number;
   boards: Board[];
   onClick: (e: MouseEvent) => void;
-  onDetail: () => void;
+  /** 触发编辑时,把卡片在视口中的位置回传,供编辑浮层锚定到卡片所在列 */
+  onDetail: (rect: DOMRect) => void;
 }
 
 export default function ClipCard({ clip, selected, index, boards, onClick, onDetail }: Props) {
@@ -203,7 +204,7 @@ export default function ClipCard({ clip, selected, index, boards, onClick, onDet
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onDetail();
+            if (ref.current) onDetail(ref.current.getBoundingClientRect());
           }}
           title={t("panel.editTitle")}
           className="w-6 h-6 rounded-md bg-white/90 dark:bg-neutral-700/90 shadow text-xs flex items-center justify-center hover:bg-indigo-500 hover:text-white transition-colors"
