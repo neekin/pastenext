@@ -221,20 +221,29 @@ export default function Panel() {
     };
   }, [detail]);
 
-  // 编辑抽屉打开时,点击抽屉以外的区域(空白 / 其它卡片)关闭抽屉。
-  // 用 capture 阶段拦截,命中检测以抽屉根节点为准,避免误伤抽屉内部交互。
+  // 编辑抽屉打开时,点击抽屉以外的区域处理如下:
+  // - 点在抽屉内:忽略,交给抽屉自身交互。
+  // - 点在某张卡片上:仅关抽屉,由卡片自身 onClick → pasteClip 负责粘贴并隐藏面板。
+  // - 点其它(空白 / 工具栏等):关抽屉并隐藏整个面板(requestHide)。
+  // 用 capture 阶段拦截,命中检测以抽屉根节点 / 卡片标记为准,避免误伤内部交互。
   useEffect(() => {
     if (!detail) return;
     const onDown = (e: MouseEvent) => {
-      const node = e.target as Node;
-      if (detailRootRef.current && !detailRootRef.current.contains(node)) {
+      const target = e.target as Node;
+      if (detailRootRef.current && detailRootRef.current.contains(target)) return;
+      const el = target instanceof HTMLElement ? target : null;
+      if (el && el.closest("[data-clip-card]")) {
         setDetail(null);
         setDetailAnchor(null);
+        return;
       }
+      setDetail(null);
+      setDetailAnchor(null);
+      requestHide();
     };
     window.addEventListener("mousedown", onDown, true);
     return () => window.removeEventListener("mousedown", onDown, true);
-  }, [detail]);
+  }, [detail, requestHide]);
 
   const addBoard = async () => {
     const name = newBoard.trim();

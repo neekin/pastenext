@@ -155,6 +155,7 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
   return (
     <div
       ref={ref}
+      data-clip-card
       draggable
       onClick={onClick}
       onDragStart={handleDragStart}
