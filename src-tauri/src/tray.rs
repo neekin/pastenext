@@ -6,14 +6,22 @@ use tauri::menu::{IsMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
-/// 托盘图标:独立的「极简线条」风格彩色 PNG(由 source-icon.svg 品牌色板延伸),
-/// 白色剪贴板 + 蓝色/灰色双条,在菜单栏中不再与 app icon 重合。
+/// 托盘图标。
+/// - macOS:白色剪贴板图标(icons/tray/icon.png),适配顶部菜单栏的深色背景。
+/// - Windows:直接用彩色 app 图标(icons/icon.png),白色图标在浅色任务栏上看不清。
+///   其它平台回退到白色托盘图标。
 fn tray_icon() -> Image<'static> {
-    // Tauri 2 的 Image 只接受裸 RGBA,不接受编码后的 PNG 字节,
-    // 所以先用 image crate(已开启 png feature)把内嵌的彩色 PNG 解码成 RGBA。
+    #[cfg(target_os = "macos")]
     let bytes = include_bytes!("../icons/tray/icon.png");
+    #[cfg(target_os = "windows")]
+    let bytes = include_bytes!("../icons/icon.png");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let bytes = include_bytes!("../icons/tray/icon.png");
+
+    // Tauri 2 的 Image 只接受裸 RGBA,不接受编码后的 PNG 字节,
+    // 所以先用 image crate(已开启 png feature)把内嵌的 PNG 解码成 RGBA。
     let rgba = image::load_from_memory(bytes)
-        .expect("failed to decode tray color png")
+        .expect("failed to decode tray png")
         .to_rgba8();
     let (w, h) = rgba.dimensions();
     Image::new_owned(rgba.into_raw(), w, h)
