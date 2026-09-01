@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
 import { api } from "../api";
+import ClipImage from "./ClipImage";
 import { useI18n } from "../i18n";
 import type { Board, Clip } from "../types";
 
@@ -88,10 +88,9 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
     if (clip.kind === "image" && clip.imagePath) {
       return (
         <div className="relative w-full h-full">
-          <img
-            src={convertFileSrc(clip.imagePath)}
+          <ClipImage
+            path={clip.imagePath}
             className="w-full h-full object-cover rounded-lg"
-            draggable={false}
             onLoad={(e) =>
               setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
             }

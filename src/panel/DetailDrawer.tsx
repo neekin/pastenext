@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
 import { api, onClipsUpdated } from "../api";
+import ClipImage from "./ClipImage";
 import { useI18n } from "../i18n";
 import type { Board, Clip } from "../types";
 
@@ -153,10 +153,9 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
           <section>
             <label className="text-xs text-neutral-400">{t("detail.imagePreview")}</label>
             <div className="mt-1 rounded-lg overflow-hidden ring-1 ring-black/10 dark:ring-white/10 bg-black/5 dark:bg-white/10">
-              <img
-                src={convertFileSrc(cur.imagePath)}
+              <ClipImage
+                path={cur.imagePath}
                 className="w-full max-h-60 object-contain"
-                draggable={false}
               />
             </div>
           </section>

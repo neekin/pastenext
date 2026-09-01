@@ -315,6 +315,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_clips,
             commands::get_clip,
+            commands::read_image_base64,
             commands::get_boards,
             commands::create_board,
             commands::rename_board,

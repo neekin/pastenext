@@ -47,6 +47,21 @@ pub fn get_clip(db: State<Db>, id: i64) -> Result<Option<Clip>, String> {
     Ok(db.get_clip(id))
 }
 
+/// 以 base64 data URL 形式返回本地图片文件内容,供前端 <img> 直接渲染。
+///
+/// 不使用 Tauri 的 asset 协议(convertFileSrc):Windows 的 WebView2 对 asset:// 的作用域
+/// 校验极严,图片落在 $APPDATA 作用域之外(如便携模式的 exe/Data 目录)时会加载失败、
+/// 表现为缩略图空白。base64 data URL 与平台 / 路径 / 协议作用域均无关,渲染稳定。
+#[tauri::command]
+pub fn read_image_base64(path: String) -> Result<String, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    use base64::Engine as _;
+    Ok(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    ))
+}
+
 #[tauri::command]
 pub fn delete_clip(app: AppHandle, db: State<Db>, id: i64) -> Result<(), String> {
     db.delete_clip(id);

@@ -32,6 +32,7 @@ export const api = {
       offset: p.offset ?? 0,
     }),
   getClip: (id: number) => invoke<Clip | null>("get_clip", { id }),
+  readImage: (path: string) => invoke<string>("read_image_base64", { path }),
   getBoards: () => invoke<Board[]>("get_boards"),
   createBoard: (name: string) => invoke<Board>("create_board", { name }),
   renameBoard: (id: number, name: string) => invoke<void>("rename_board", { id, name }),
