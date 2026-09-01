@@ -8,12 +8,16 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// 上一次成功抓取的图片特征,用于防重复落盘。
 /// Windows 上一次复制可能被系统多次写入剪贴板(如先 CF_DIB 后 PNG),
-/// 监听器 400ms 轮询会抓到两次且解码哈希可能不同;应用自身复制/粘贴写回剪贴板
-/// 也会触发二次抓取。短时间内同哈希或同尺寸的图片视为同一次,跳过第二条。
+/// 监听器 400ms 轮询会抓到两次且解码出的尺寸/像素哈希可能不同——典型场景是
+/// 高 DPI 下截图工具把高分辨率图写入 PNG、把适配系统 DPI 的图写入 DIB,两次尺寸不同;
+/// 应用自身复制/粘贴写回剪贴板也会触发二次抓取。
+/// 仅用原始尺寸/哈希去重覆盖面太窄,故额外计算 64x64 归一化感知哈希:
+/// 同图不同格式/尺寸缩放后哈希一致,可在短时间窗内识别为重复并跳过第二条。
 struct LastImageSig {
     w: u32,
     h: u32,
     hash: String,
+    nhash: String,
     at: u128,
 }
 static LAST_IMAGE: OnceLock<Mutex<Option<LastImageSig>>> = OnceLock::new();
@@ -93,20 +97,27 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
             let rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
             let (w, h) = rgba.dimensions();
             let hash = util::hash_rgba(w, h, rgba.as_raw());
-            // 防重复落盘:见 LAST_IMAGE 说明。1.5s 内、同哈希或同尺寸的图片
-            // 视为同一次复制的重复触发,跳过,避免生成两份一模一样的图片。
+            // 归一化感知哈希:缩放到 64x64,抹平不同格式/不同 DPI 尺寸解码出的像素差异,
+            // 让 Windows 高 DPI 下一次截图经 PNG/DIB 多次写入产生的两份能被识别为重复。
+            let small = image::imageops::resize(&rgba, 64, 64, image::imageops::FilterType::Triangle);
+            let nhash = util::hash_rgba(64, 64, small.as_raw());
+            // 防重复落盘:见 LAST_IMAGE 说明。3s 内、满足以下任一条件的图片视为同一次
+            // 复制的重复触发,跳过,避免生成两份一模一样的图片:
+            //  - 原始像素哈希相同(同一份字节)
+            //  - 归一化哈希相同(同图不同格式/尺寸)
+            //  - 原始尺寸相同(同图解码尺寸一致)
             let now = now_ms();
             let sig = LAST_IMAGE.get_or_init(|| Mutex::new(None));
             let dup = {
                 let g = sig.lock().unwrap();
                 g.as_ref().map_or(false, |p| {
-                    now.saturating_sub(p.at) < 1500
-                        && (p.hash == hash || (p.w == w && p.h == h))
+                    now.saturating_sub(p.at) < 3000
+                        && (p.hash == hash || p.nhash == nhash || (p.w == w && p.h == h))
                 })
             };
             {
                 let mut g = sig.lock().unwrap();
-                *g = Some(LastImageSig { w, h, hash: hash.clone(), at: now });
+                *g = Some(LastImageSig { w, h, hash: hash.clone(), nhash: nhash.clone(), at: now });
             }
             if dup {
                 return None;
