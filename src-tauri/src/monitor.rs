@@ -2,6 +2,7 @@ use crate::db::Db;
 use crate::model::{ClipInsert, ClipKind, RawContent};
 use crate::platform;
 use crate::util;
+use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -26,6 +27,8 @@ static LAST_IMAGE: OnceLock<Mutex<Option<LastImageSig>>> = OnceLock::new();
 /// macOS 上 AppKit 要求主线程访问,捕获统一派发到主线程执行。
 pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || {
+        reset_diag(&app);
+        diag_log(&app, "=== monitor diag started ===");
         let mut last = platform::change_count();
         std::thread::sleep(Duration::from_millis(500));
         loop {
@@ -35,6 +38,7 @@ pub fn spawn(app: AppHandle) {
                 continue;
             }
             last = cur;
+            diag_log(&app, &format!("seq change -> {}", cur));
             #[cfg(target_os = "macos")]
             {
                 let b = app.clone();
@@ -54,6 +58,10 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
     let db = app.state::<Db>();
 
     let source = platform::frontmost_app();
+    diag_log(app, &format!("capture start; frontmost name={:?} bundle={:?}; self_excluded={}",
+        source.as_ref().map(|a| a.name.clone()),
+        source.as_ref().and_then(|a| a.bundle.clone()),
+        source.as_ref().map_or(false, |fg| fg.bundle.as_deref() == Some(app.config().identifier.as_str()))));
 
     // 排除自身:面板处于前台时的复制不记录
     let self_bundle = app.config().identifier.clone();
@@ -75,6 +83,11 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
     }
 
     let raw = platform::read_content()?;
+    match &raw {
+        RawContent::Text { .. } => diag_log(app, "raw=Text"),
+        RawContent::Image { format: src_format, .. } => diag_log(app, &format!("raw=Image format={}", src_format)),
+        RawContent::Files { paths } => diag_log(app, &format!("raw=Files n={}", paths.len())),
+    }
 
     let insert = match raw {
         RawContent::Text { text, html } => {
@@ -92,7 +105,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 source_app: source.as_ref().map(|a| a.name.clone()),
             }
         }
-        RawContent::Image { bytes } => {
+        RawContent::Image { bytes, format: src_format } => {
             // 统一解码 → RGBA 指纹 → 重新编码为 PNG 落盘
             let rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
             let (w, h) = rgba.dimensions();
@@ -108,18 +121,33 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
             //  - 原始尺寸相同(同图解码尺寸一致)
             let now = now_ms();
             let sig = LAST_IMAGE.get_or_init(|| Mutex::new(None));
-            let dup = {
+            let (dup, reason) = {
                 let g = sig.lock().unwrap();
-                g.as_ref().map_or(false, |p| {
-                    now.saturating_sub(p.at) < 3000
-                        && (p.hash == hash || p.nhash == nhash || (p.w == w && p.h == h))
-                })
+                match g.as_ref() {
+                    Some(p) if now.saturating_sub(p.at) < 3000 => {
+                        if p.hash == hash {
+                            (true, "hash")
+                        } else if p.nhash == nhash {
+                            (true, "nhash")
+                        } else if p.w == w && p.h == h {
+                            (true, "size")
+                        } else {
+                            (false, "none")
+                        }
+                    }
+                    _ => (false, "none"),
+                }
             };
             {
                 let mut g = sig.lock().unwrap();
                 *g = Some(LastImageSig { w, h, hash: hash.clone(), nhash: nhash.clone(), at: now });
             }
+            diag_log(app, &format!(
+                "image format={} {}x{} hash={} nhash={} dup={} reason={}",
+                src_format, w, h, &hash[..8.min(hash.len())], &nhash[..8.min(nhash.len())], dup, reason
+            ));
             if dup {
+                diag_log(app, "image SKIP (dup)");
                 return None;
             }
             let dir = images_dir(app);
@@ -199,6 +227,31 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
 
 fn images_dir(app: &AppHandle) -> std::path::PathBuf {
     crate::portable::resolve_data_dir(app).join("images")
+}
+
+fn reset_diag(app: &AppHandle) {
+    let dir = crate::portable::resolve_data_dir(app);
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("debug-clip.log");
+    if let Ok(mut f) = std::fs::File::create(&path) {
+        let _ = std::writeln!(f, "diag log: {}", path.display());
+    }
+}
+
+fn diag_log(app: &AppHandle, msg: &str) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let line = format!("[{}] {}\n", ts, msg);
+    eprintln!("{}", line);
+    let dir = crate::portable::resolve_data_dir(app);
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let path = dir.join("debug-clip.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = std::io::Write::write_all(&mut f, line.as_bytes());
+        }
+    }
 }
 
 fn now_ms() -> u128 {

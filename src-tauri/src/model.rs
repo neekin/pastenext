@@ -76,7 +76,7 @@ pub struct AppInfo {
 #[derive(Debug, Clone)]
 pub enum RawContent {
     Text { text: String, html: Option<String> },
-    Image { bytes: Vec<u8> },
+    Image { bytes: Vec<u8>, format: String },
     Files { paths: Vec<String> },
 }
 

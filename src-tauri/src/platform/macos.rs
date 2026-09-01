@@ -42,7 +42,7 @@ pub fn read_content() -> Option<RawContent> {
         if let Some(data) = pb.dataForType(&NSString::from_str(uti)) {
             let bytes = data.to_vec();
             if !bytes.is_empty() {
-                return Some(RawContent::Image { bytes });
+                return Some(RawContent::Image { bytes, format: "macos".to_string() });
             }
         }
     }

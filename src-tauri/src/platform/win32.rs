@@ -59,7 +59,7 @@ pub fn read_content() -> Option<RawContent> {
             if let Ok(h) = GetClipboardData(fmt) {
                 if let Some(bytes) = read_bytes(h) {
                     if !bytes.is_empty() {
-                        return Some(RawContent::Image { bytes });
+                        return Some(RawContent::Image { bytes, format: "png".to_string() });
                     }
                 }
             }
@@ -67,7 +67,7 @@ pub fn read_content() -> Option<RawContent> {
         if let Ok(h) = GetClipboardData(cf(CF_DIB)) {
             if let Some(bytes) = read_bytes(h) {
                 if let Some(png) = dib_to_png(&bytes) {
-                    return Some(RawContent::Image { bytes: png });
+                    return Some(RawContent::Image { bytes: png, format: "dib".to_string() });
                 }
             }
         }
