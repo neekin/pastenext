@@ -2,8 +2,21 @@ use crate::db::Db;
 use crate::model::{ClipInsert, ClipKind, RawContent};
 use crate::platform;
 use crate::util;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
+
+/// 上一次成功抓取的图片特征,用于防重复落盘。
+/// Windows 上一次复制可能被系统多次写入剪贴板(如先 CF_DIB 后 PNG),
+/// 监听器 400ms 轮询会抓到两次且解码哈希可能不同;应用自身复制/粘贴写回剪贴板
+/// 也会触发二次抓取。短时间内同哈希或同尺寸的图片视为同一次,跳过第二条。
+struct LastImageSig {
+    w: u32,
+    h: u32,
+    hash: String,
+    at: u128,
+}
+static LAST_IMAGE: OnceLock<Mutex<Option<LastImageSig>>> = OnceLock::new();
 
 /// 后台轮询线程:检测系统剪贴板变化号,变化时交由平台层捕获。
 /// macOS 上 AppKit 要求主线程访问,捕获统一派发到主线程执行。
@@ -79,6 +92,25 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
             // 统一解码 → RGBA 指纹 → 重新编码为 PNG 落盘
             let rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
             let (w, h) = rgba.dimensions();
+            let hash = util::hash_rgba(w, h, rgba.as_raw());
+            // 防重复落盘:见 LAST_IMAGE 说明。1.5s 内、同哈希或同尺寸的图片
+            // 视为同一次复制的重复触发,跳过,避免生成两份一模一样的图片。
+            let now = now_ms();
+            let sig = LAST_IMAGE.get_or_init(|| Mutex::new(None));
+            let dup = {
+                let g = sig.lock().unwrap();
+                g.as_ref().map_or(false, |p| {
+                    now.saturating_sub(p.at) < 1500
+                        && (p.hash == hash || (p.w == w && p.h == h))
+                })
+            };
+            {
+                let mut g = sig.lock().unwrap();
+                *g = Some(LastImageSig { w, h, hash: hash.clone(), at: now });
+            }
+            if dup {
+                return None;
+            }
             let dir = images_dir(app);
             std::fs::create_dir_all(&dir).ok()?;
             let path = dir.join(format!("{}.png", now_ms()));
@@ -94,7 +126,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 image_path: Some(path.to_string_lossy().to_string()),
                 file_paths: None,
                 byte_size: bytes.len() as i64,
-                hash: util::hash_rgba(w, h, rgba.as_raw()),
+                hash,
                 source_app: source.as_ref().map(|a| a.name.clone()),
             }
         }
