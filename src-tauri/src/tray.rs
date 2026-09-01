@@ -2,7 +2,7 @@ use crate::i18n::{self, Key};
 use crate::{show_panel, toggle_panel};
 use std::sync::Mutex;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -23,6 +23,7 @@ fn tray_icon() -> Image<'static> {
 pub struct TrayMenus(pub Mutex<Option<TrayMenuItems>>);
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct TrayMenuItems {
     pub show: MenuItem<Wry>,
     pub settings: MenuItem<Wry>,
@@ -32,24 +33,24 @@ pub struct TrayMenuItems {
     pub accessibility: MenuItem<Wry>,
 }
 
-pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
+/// 构建托盘菜单。
+///
+/// 已激活时隐藏「激活…」项;已授权辅助功能时隐藏「辅助功能权限…」项。
+/// 判断依据:激活状态读 DB 的 `license_activated`,辅助功能读系统 `AXIsProcessTrusted`。
+pub fn build_tray_menu(
+    app: &AppHandle,
+) -> tauri::Result<(Menu<Wry>, TrayMenuItems)> {
     let locale = resolve_locale(app);
 
     let show = MenuItem::with_id(app, "show", i18n::tr(&locale, Key::Show), true, None::<&str>)?;
-    let settings = MenuItem::with_id(
-        app,
-        "settings",
-        i18n::tr(&locale, Key::Settings),
-        true,
-        None::<&str>,
-    )?;
+    let settings =
+        MenuItem::with_id(app, "settings", i18n::tr(&locale, Key::Settings), true, None::<&str>)?;
     let activate =
         MenuItem::with_id(app, "activate", i18n::tr(&locale, Key::Activate), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", i18n::tr(&locale, Key::Quit), true, None::<&str>)?;
 
-    // 辅助功能授权入口仅 macOS 需要
     #[cfg(target_os = "macos")]
-    let ax_item = MenuItem::with_id(
+    let accessibility = MenuItem::with_id(
         app,
         "accessibility",
         i18n::tr(&locale, Key::Accessibility),
@@ -57,22 +58,72 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
         None::<&str>,
     )?;
 
+    // 已激活 → 不再展示「激活…」
+    let activated = app
+        .try_state::<crate::db::Db>()
+        .and_then(|d| d.get_setting(crate::license::K_ACTIVATED))
+        .as_deref()
+        == Some("true");
+    // 已授权辅助功能 → 不再展示「辅助功能权限…」
     #[cfg(target_os = "macos")]
-    let items: Vec<&dyn tauri::menu::IsMenuItem<_>> =
-        vec![&show, &settings, &activate, &ax_item, &quit];
-    #[cfg(not(target_os = "macos"))]
-    let items: Vec<&dyn tauri::menu::IsMenuItem<_>> = vec![&show, &settings, &activate, &quit];
+    let ax_granted = crate::platform::is_accessibility_trusted();
+
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&show, &settings];
+    #[cfg(target_os = "macos")]
+    if !ax_granted {
+        items.push(&accessibility);
+    }
+    if !activated {
+        items.push(&activate);
+    }
+    items.push(&quit);
 
     let menu = Menu::with_items(app, &items)?;
 
-    app.manage(TrayMenus(Mutex::new(Some(TrayMenuItems {
+    let tray_items = TrayMenuItems {
         show,
         settings,
         activate,
         quit,
         #[cfg(target_os = "macos")]
-        accessibility: ax_item,
-    }))));
+        accessibility,
+    };
+    Ok((menu, tray_items))
+}
+
+/// 依据当前状态(激活 / 辅助功能授权)重建托盘菜单并就地替换。
+///
+/// 供「激活成功」「辅助功能授权成功」以及「切换语言」时调用。
+pub fn refresh_tray_menu(app: &AppHandle) {
+    let (menu, items) = match build_tray_menu(app) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[tray] 重建菜单失败: {}", e);
+            return;
+        }
+    };
+    if let Some(state) = app.try_state::<crate::commands::TrayState>() {
+        if let Ok(guard) = state.0.lock() {
+            if let Some(tray) = guard.as_ref() {
+                if let Err(e) = tray.set_menu(Some(menu)) {
+                    eprintln!("[tray] set_menu 失败: {}", e);
+                    return;
+                }
+            }
+        }
+    }
+    // 更新缓存的菜单项句柄,供后续 apply_locale 更新文案
+    if let Some(state) = app.try_state::<TrayMenus>() {
+        if let Ok(mut guard) = state.0.lock() {
+            *guard = Some(items);
+        }
+    }
+}
+
+pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
+    let (menu, items) = build_tray_menu(app)?;
+
+    app.manage(TrayMenus(Mutex::new(Some(items))));
 
     // 左键行为:"panel"=唤起面板(右键菜单) / "menu"=打开菜单(右键唤起面板)
     let left_menu = app
@@ -137,24 +188,9 @@ fn resolve_locale(app: &AppHandle) -> String {
     i18n::normalize(sys_locale::get_locale().as_deref()).to_string()
 }
 
-/// 切换语言时更新托盘菜单文案(设置页改动会调用)
-pub fn apply_locale(app: &AppHandle, locale: &str) {
-    let locale = i18n::normalize(Some(locale));
-    let Some(state) = app.try_state::<TrayMenus>() else {
-        return;
-    };
-    let Ok(guard) = state.0.lock() else {
-        return;
-    };
-    let Some(items) = guard.as_ref() else {
-        return;
-    };
-    let _ = items.show.set_text(i18n::tr(&locale, Key::Show));
-    let _ = items.settings.set_text(i18n::tr(&locale, Key::Settings));
-    let _ = items.activate.set_text(i18n::tr(&locale, Key::Activate));
-    let _ = items.quit.set_text(i18n::tr(&locale, Key::Quit));
-    #[cfg(target_os = "macos")]
-    let _ = items
-        .accessibility
-        .set_text(i18n::tr(&locale, Key::Accessibility));
+/// 切换语言时更新托盘菜单文案(设置页改动会调用)。
+///
+/// 直接按当前 DB 语言重建菜单即可,顺便把激活 / 辅助功能授权状态同步进去。
+pub fn apply_locale(app: &AppHandle, _locale: &str) {
+    refresh_tray_menu(app);
 }

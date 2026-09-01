@@ -15,3 +15,6 @@ src-tauri/gen
 
 # 纯静态注册机(前端版):本地/内用,密钥在浏览器里,故意不进仓库
 keygen-web/
+
+# OCR 辅助二进制:由 build.rs 从 ocr/ocr.swift 编译,不进仓库
+src-tauri/ocr_helper

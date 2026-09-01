@@ -10,17 +10,6 @@ use tauri_plugin_opener::OpenerExt;
 /// 当前已注册的全局快捷键,供事件回调比对
 pub struct HotkeyState(pub Mutex<Option<Shortcut>>);
 
-/// 已注册的全局快速粘贴快捷键(最多 10 个,对应序号 0..9)
-pub struct QuickPasteState(pub Mutex<Vec<Shortcut>>);
-
-const QUICK_PASTE_ENABLED_KEY: &str = "quick_paste_enabled";
-
-fn quick_paste_accelerator(index: usize) -> String {
-    // 0..9 映射到 ⌘⇧1..⌘⇧0(10 号用 0 键)
-    let key = if index == 9 { 0 } else { index + 1 };
-    format!("CmdOrCtrl+Shift+{key}")
-}
-
 /// 托盘图标句柄,供运行时显隐切换
 pub struct TrayState(pub Mutex<Option<tauri::tray::TrayIcon<tauri::Wry>>>);
 
@@ -95,6 +84,14 @@ pub fn copy_clip(app: AppHandle, db: State<Db>, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// 把任意文本直接写入系统剪贴板(OCR 文字「复制」按钮用)。
+#[tauri::command]
+pub fn copy_text(text: String) -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.set().text(text).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 执行真正的粘贴逻辑(写剪贴板、可选自动粘贴、更新使用次数)
 /// 不隐藏面板,由调用方决定是否隐藏
 fn paste_clip_internal(app: &AppHandle, db: &State<Db>, id: i64, plain: bool) -> Result<(), String> {
@@ -137,59 +134,6 @@ pub fn paste_clip(app: AppHandle, db: State<Db>, id: i64, plain: Option<bool>) -
     paste_clip_internal(&app, &db, id, plain.unwrap_or(false))?;
     emit(&app, "paste");
     Ok(())
-}
-
-/// 通过全局快捷键直接粘贴最近历史中的第 index 条(不开面板)
-pub fn quick_paste_by_index(app: &AppHandle, index: usize) -> Result<(), String> {
-    let db = app.state::<Db>();
-    let clips = db
-        .list_clips(None, None, Some(-1), None, 10, 0)
-        .map_err(|e| format!("读取历史失败: {e}"))?;
-    let clip = clips.get(index).ok_or("该序号没有对应条目")?;
-
-    // 未开面板时 PreviousApp 为空,先记录当前前台应用
-    if let Some(state) = app.try_state::<crate::PreviousApp>() {
-        if let Ok(mut guard) = state.0.lock() {
-            *guard = platform::frontmost_app();
-        }
-    }
-
-    paste_clip_internal(app, &db, clip.id, false)?;
-    emit(app, "paste");
-    Ok(())
-}
-
-/// 注册/注销快速粘贴全局快捷键(⌘⇧1..0)
-pub fn register_quick_paste_hotkeys(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    let gs = app.global_shortcut();
-    let holder = app.state::<QuickPasteState>();
-    let mut state = holder.0.lock().unwrap();
-    // 注销已有的
-    for sc in state.drain(..) {
-        let _ = gs.unregister(sc);
-    }
-    if enabled {
-        for i in 0..10 {
-            let acc = quick_paste_accelerator(i);
-            match acc.parse::<Shortcut>() {
-                Ok(sc) => {
-                    if let Err(e) = gs.register(sc.clone()) {
-                        eprintln!("[quick-paste] register {} failed: {}", acc, e);
-                    } else {
-                        state.push(sc);
-                    }
-                }
-                Err(e) => eprintln!("[quick-paste] parse {} failed: {}", acc, e),
-            }
-        }
-    }
-    app.state::<Db>().set_setting(QUICK_PASTE_ENABLED_KEY, if enabled { "true" } else { "false" });
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_quick_paste_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
-    register_quick_paste_hotkeys(&app, enabled)
 }
 
 /// 把条目内容写回系统剪贴板;plain=true 时富文本降级为纯文本
@@ -506,6 +450,8 @@ pub fn activate_license(app: AppHandle, db: State<Db>, email: String, key: Strin
     db.set_setting(crate::license::K_ACTIVATED, "true");
     db.set_setting(crate::license::K_ACTIVATED_AT, &now);
     broadcast(&app, crate::license::K_ACTIVATED, "true");
+    // 已激活 → 托盘菜单的「激活」项应隐藏,需重建菜单
+    crate::tray::refresh_tray_menu(&app);
     Ok(())
 }
 
@@ -540,8 +486,13 @@ pub fn get_accessibility_trusted() -> bool {
 
 /// 弹出系统原生授权提示并返回当前授权状态
 #[tauri::command]
-pub fn request_accessibility() -> bool {
-    platform::request_accessibility()
+pub fn request_accessibility(app: AppHandle) -> bool {
+    let trusted = platform::request_accessibility();
+    // 已授权 → 托盘菜单的「辅助功能」项应隐藏,需重建菜单
+    if trusted {
+        crate::tray::refresh_tray_menu(&app);
+    }
+    trusted
 }
 
 #[tauri::command]

@@ -404,6 +404,13 @@ impl Db {
         Ok(())
     }
 
+    /// OCR 等场景:把识别出的文本回写到某条剪贴(图片剪贴的 text 字段复用存储 OCR 结果)。
+    /// 直接按 id 更新,跳过 hash 去重逻辑,避免覆盖已有的正文。
+    pub fn set_clip_text(&self, id: i64, text: &str) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute("UPDATE clips SET text = ?2 WHERE id = ?1", params![id, text]);
+    }
+
     pub fn set_note(&self, id: i64, note: &str) {
         let conn = self.conn.lock().unwrap();
         let _ = conn.execute("UPDATE clips SET note = ?2 WHERE id = ?1", params![id, note]);

@@ -261,11 +261,6 @@ export default function Panel() {
     if (e.key === "Escape") {
       e.preventDefault();
       requestHide();
-    } else if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
-      // 快速粘贴:⌘/Ctrl + 1..9 直接粘贴第 N 条
-      e.preventDefault();
-      const c = clips[Number(e.key) - 1];
-      if (c) pasteClip(c.id, plainFor(e));
     } else if (e.metaKey && (e.key === "[" || e.key === "]")) {
       // ⌘[ / ⌘] 切换上一个/下一个看板
       e.preventDefault();
@@ -423,7 +418,6 @@ export default function Panel() {
               key={c.id}
               clip={c}
               selected={i === selected}
-              index={i}
               boards={boards}
               onClick={(e) => pasteClip(c.id, plainFor(e))}
               onDetail={(rect) => {

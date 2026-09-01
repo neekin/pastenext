@@ -120,7 +120,26 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
         }
     };
 
-    db.insert_or_bump(&insert);
+    let clip_id = db.insert_or_bump(&insert);
+
+    // OCR:图片落盘后异步识别文字,结果写回 text 字段(同时让图片可被全文搜索)。
+    // 放在独立线程,避免在主线程(尤其 macOS 捕获派发到主线程)上阻塞。
+    if insert.kind == ClipKind::Image {
+        if let Some(img_path) = insert.image_path.clone() {
+            let app2 = app.clone();
+            std::thread::spawn(move || {
+                if let Some(text) = crate::ocr::ocr_image_auto(&app2, &img_path) {
+                    let db = app2.state::<Db>();
+                    db.set_clip_text(clip_id, &text);
+                    let _ = app2.emit(
+                        "clips-updated",
+                        serde_json::json!({ "reason": "ocr", "id": clip_id }),
+                    );
+                }
+            });
+        }
+    }
+
     let max_items: i64 = db
         .get_setting("max_items")
         .and_then(|s| s.parse().ok())

@@ -38,6 +38,7 @@ export const api = {
   deleteBoard: (id: number) => invoke<void>("delete_board", { id }),
   getTags: () => invoke<Tag[]>("get_tags"),
   copyClip: (id: number) => invoke<void>("copy_clip", { id }),
+  copyText: (text: string) => invoke<void>("copy_text", { text }),
   pasteClip: (id: number, plain?: boolean) => invoke<void>("paste_clip", { id, plain: plain ?? null }),
   deleteClip: (id: number) => invoke<void>("delete_clip", { id }),
   clearHistory: () => invoke<void>("clear_history"),
@@ -49,8 +50,6 @@ export const api = {
   getSettings: () => invoke<Record<string, string>>("get_settings"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   setHotkey: (accelerator: string) => invoke<void>("set_hotkey", { accelerator }),
-  setQuickPasteEnabled: (enabled: boolean) =>
-    invoke<void>("set_quick_paste_enabled", { enabled }),
   getLicenseInfo: () => invoke<LicenseInfo>("get_license_info"),
   activateLicense: (email: string, key: string) =>
     invoke<void>("activate_license", { email, key }),

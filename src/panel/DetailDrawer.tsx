@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
-import { api } from "../api";
+import { api, onClipsUpdated } from "../api";
 import { useI18n } from "../i18n";
 import type { Board, Clip } from "../types";
 
@@ -29,6 +30,19 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
       .then((ts) => setKnownTags(ts.map((t) => t.name)))
       .catch(() => {});
   }, []);
+
+  // 图片剪贴的 OCR 是异步完成的:识别结束后会广播 clips-updated,
+  // 这里让「已打开」的详情抽屉也跟着刷新,及时显示 OCR 文字(无需关闭重开)。
+  useEffect(() => {
+    if (cur.kind !== "image") return;
+    const id = cur.id;
+    const un = onClipsUpdated(() => {
+      api.getClip(id).then((c) => c && setCur(c)).catch(() => {});
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [cur.id, cur.kind]);
 
   const refresh = () => {
     api
@@ -131,6 +145,45 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
               >
                 {t("detail.saveContent")}
               </button>
+            )}
+          </section>
+        )}
+
+        {cur.kind === "image" && cur.imagePath && (
+          <section>
+            <label className="text-xs text-neutral-400">{t("detail.imagePreview")}</label>
+            <div className="mt-1 rounded-lg overflow-hidden ring-1 ring-black/10 dark:ring-white/10 bg-black/5 dark:bg-white/10">
+              <img
+                src={convertFileSrc(cur.imagePath)}
+                className="w-full max-h-60 object-contain"
+                draggable={false}
+              />
+            </div>
+          </section>
+        )}
+
+        {cur.kind === "image" && (
+          <section>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-neutral-400">{t("detail.ocr")}</label>
+              {cur.text && (
+                <button
+                  onClick={async () => {
+                    await api.copyText(cur.text ?? "").catch(() => {});
+                    say(t("detail.ocrCopied"));
+                  }}
+                  className="text-xs px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
+                >
+                  {t("detail.ocrCopy")}
+                </button>
+              )}
+            </div>
+            {cur.text ? (
+              <pre className="mt-1 rounded-lg bg-black/5 dark:bg-white/10 p-2 text-[12px] leading-5 whitespace-pre-wrap break-all text-neutral-700 dark:text-neutral-200 max-h-48 overflow-y-auto">
+                {cur.text}
+              </pre>
+            ) : (
+              <div className="mt-1 text-xs text-neutral-400">{t("detail.ocrPending")}</div>
             )}
           </section>
         )}

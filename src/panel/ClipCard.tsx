@@ -43,14 +43,13 @@ function relTime(ts: number, t: (key: "time.justNow" | "time.minutesAgo" | "time
 interface Props {
   clip: Clip;
   selected: boolean;
-  index: number;
   boards: Board[];
   onClick: (e: MouseEvent) => void;
   /** 触发编辑时,把卡片在视口中的位置回传,供编辑浮层锚定到卡片所在列 */
   onDetail: (rect: DOMRect) => void;
 }
 
-export default function ClipCard({ clip, selected, index, boards, onClick, onDetail }: Props) {
+export default function ClipCard({ clip, selected, boards, onClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -100,6 +99,14 @@ export default function ClipCard({ clip, selected, index, boards, onClick, onDet
           {dims && (
             <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-medium tabular-nums">
               {dims.w}×{dims.h}
+            </span>
+          )}
+          {clip.text && (
+            <span
+              title={t("clip.ocrBadge")}
+              className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-indigo-500/90 text-white text-[10px] font-medium"
+            >
+              OCR
             </span>
           )}
         </div>
@@ -188,16 +195,6 @@ export default function ClipCard({ clip, selected, index, boards, onClick, onDet
           {clip.tags.length > 0 && <span title={clip.tags.map((t) => t.name).join(", ")}>🏷️</span>}
         </span>
       </div>
-
-      {/* 快速粘贴序号(前 10 张:面板内 ⌘/Ctrl+1..9,全局 ⌘/Ctrl+Shift+1..0) */}
-      {index < 10 && (
-        <span
-          title={`${t("clip.quickPasteHint")} ${index === 9 ? 0 : index + 1}`}
-          className="absolute top-[7px] left-1.5 w-5 h-5 rounded-full bg-neutral-800/90 dark:bg-neutral-200/90 text-white dark:text-neutral-900 text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-neutral-900 z-10"
-        >
-          {index === 9 ? 0 : index + 1}
-        </span>
-      )}
 
       {/* 悬停操作 */}
       <div className="absolute top-1.5 right-1.5 hidden group-hover:flex gap-1">

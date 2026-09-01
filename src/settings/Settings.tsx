@@ -189,7 +189,6 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <ul className="text-[13px] text-neutral-600 dark:text-neutral-300 space-y-1 list-disc list-inside">
             <li>{t("help.hotkeyMac")}</li>
             <li>{t("help.hotkeyWin")}</li>
-            <li>{t("help.quickPaste")}</li>
           </ul>
         </div>
 
@@ -616,21 +615,6 @@ export default function Settings() {
               type="checkbox"
               checked={(settings.auto_paste ?? "true") === "true"}
               onChange={(e) => save("auto_paste", e.target.checked ? "true" : "false")}
-              className="w-4 h-4 accent-indigo-500"
-            />
-          </div>
-          <div className={row}>
-            <span className={lbl}>
-              {t("settings.quickPaste")}
-              <span className="ml-1 text-xs text-neutral-400">{t("settings.quickPaste.desc")}</span>
-            </span>
-            <input
-              type="checkbox"
-              checked={(settings.quick_paste_enabled ?? "true") === "true"}
-              onChange={async (e) => {
-                save("quick_paste_enabled", e.target.checked ? "true" : "false");
-                await api.setQuickPasteEnabled(e.target.checked).catch(() => {});
-              }}
               className="w-4 h-4 accent-indigo-500"
             />
           </div>

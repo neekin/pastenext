@@ -5,11 +5,12 @@ mod portable;
 mod license;
 mod model;
 mod monitor;
+mod ocr;
 mod platform;
 mod tray;
 mod util;
 
-use commands::{HotkeyState, QuickPasteState, register_quick_paste_hotkeys};
+use commands::HotkeyState;
 use db::Db;
 use model::AppInfo;
 use std::sync::Mutex;
@@ -201,20 +202,6 @@ pub fn run() {
                             toggle_panel(app);
                             return;
                         }
-
-                        // 2) 快速粘贴热键 ⌘⇧1..0
-                        if let Some(state) = app.try_state::<QuickPasteState>() {
-                            if let Ok(guard) = state.0.lock() {
-                                for (i, sc) in guard.iter().enumerate() {
-                                    if sc == shortcut {
-                                        if let Err(e) = commands::quick_paste_by_index(app, i) {
-                                            eprintln!("[quick-paste] {}: {}", i, e);
-                                        }
-                                        return;
-                                    }
-                                }
-                            }
-                        }
                     }
                 })
                 .build(),
@@ -266,18 +253,7 @@ pub fn run() {
                 });
             app.manage(HotkeyState(Mutex::new(registered)));
             app.manage(PreviousApp(Mutex::new(None)));
-            app.manage(QuickPasteState(Mutex::new(Vec::new())));
             app.manage(PanelGeometry(Mutex::new(None)));
-
-            // 根据设置注册快速粘贴全局快捷键(默认开启)
-            let qp_enabled = app
-                .state::<Db>()
-                .get_setting("quick_paste_enabled")
-                .map(|v| v == "true")
-                .unwrap_or(true);
-            if let Err(e) = register_quick_paste_hotkeys(app.handle(), qp_enabled) {
-                eprintln!("[setup] register quick paste hotkeys failed: {e}");
-            }
 
             let tray_icon = tray::create(app.handle())?;
             app.manage(commands::TrayState(Mutex::new(Some(tray_icon))));
@@ -347,6 +323,7 @@ pub fn run() {
             commands::add_tag,
             commands::remove_tag,
             commands::copy_clip,
+            commands::copy_text,
             commands::paste_clip,
             commands::delete_clip,
             commands::clear_history,
@@ -356,7 +333,6 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
             commands::set_hotkey,
-            commands::set_quick_paste_enabled,
             commands::get_license_info,
             commands::activate_license,
             commands::dismiss_license_prompt,
