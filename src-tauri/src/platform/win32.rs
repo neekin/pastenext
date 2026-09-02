@@ -1,6 +1,6 @@
 use crate::model::{AppInfo, RawContent};
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, POINT};
+use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, POINT, WPARAM};
 use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
@@ -16,13 +16,16 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
     VK_CONTROL,
 };
+use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
     BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
 };
 use windows::Win32::UI::Shell::{DragQueryFileW, SHGetFileInfoW, DROPFILES, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, GetForegroundWindow, GetIconInfo, GetWindowThreadProcessId, HICON, ICONINFO,
+    DestroyIcon, GetClassLongPtrW, GetForegroundWindow, GetIconInfo, GetWindowThreadProcessId,
+    HICON, ICONINFO, GCLP_HICON, GCLP_HICONSM, WM_GETICON,
 };
 
 const VK_V: u16 = 0x56;
@@ -227,9 +230,61 @@ pub fn frontmost_app() -> Option<AppInfo> {
     }
 }
 
+/// trace 模式下写图标诊断日志。Windows GUI 应用没有控制台,eprintln 取不到,
+/// 只能落盘取证(路径与 debug-clip.log 同级)。
+fn ilog(msg: &str) {
+    let on = std::env::var("PASTENEXT_TRACE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !on {
+        return;
+    }
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .map(|d| if d.join("portable.mode").exists() { d.join("Data") } else {
+            std::env::var_os("APPDATA")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(d)
+                .join("io.pastenext.app")
+        })
+    else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("icon-debug.log"))
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{msg}");
+    }
+}
+
+/// shell 图标接口要求调用线程已初始化 COM。capture 跑在 monitor 后台线程上,
+/// 未初始化时 SHGetFileInfoW 可能直接失败(返回 0)。只初始化一次:
+/// CoInitializeEx 每成功一次加一次引用计数,反复调用会泄漏 COM 引用。
+static COM_INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+fn ensure_com() {
+    COM_INIT.get_or_init(|| unsafe {
+        // RPC_E_CHANGED_MODE(0x80010106)表示本线程已按其他模式初始化,属正常,忽略
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    });
+}
+
 /// 取来源 App 的图标,返回 (宽, 高, RGBA)。取不到返回 None。
-/// 用 SHGetFileInfoW 按 exe 路径取系统图标,再经 GetIconInfo + GetDIBits 转 RGBA。
+/// 优先级:
+/// 1) 前台窗口自带图标(WM_GETICON / 窗口类图标)——UWP 应用(如截图工具)的 exe 位于
+///    受 ACL 保护的 WindowsApps 目录,按 exe 路径读文件图标常失败,而窗口图标始终可靠;
+/// 2) exe 路径 → SHGetFileInfoW 系统图标(兜底)。
 pub fn app_icon(info: &AppInfo) -> Option<(u32, u32, Vec<u8>)> {
+    ensure_com();
+    // capture_inner 里 frontmost_app() 刚取过前台窗口,这里紧接着调用,前台应用不变
+    if let Some(rgba) = window_icon() {
+        ilog("icon: from foreground window icon");
+        return Some(rgba);
+    }
     let path = info.exe_path.as_ref()?;
     unsafe {
         let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
@@ -243,11 +298,44 @@ pub fn app_icon(info: &AppInfo) -> Option<(u32, u32, Vec<u8>)> {
             SHGFI_ICON | SHGFI_LARGEICON,
         );
         if ret == 0 || shfi.hIcon.is_invalid() {
+            ilog(&format!("icon: SHGetFileInfoW ret={ret} path={path} FAILED"));
             return None;
         }
         let rgba = hicon_to_rgba(shfi.hIcon);
         let _ = DestroyIcon(shfi.hIcon);
+        ilog(&format!(
+            "icon: SHGetFileInfoW ok path={path} rgba={}",
+            if rgba.is_some() { "ok" } else { "NONE" }
+        ));
         rgba
+    }
+}
+
+/// 前台窗口图标:先试 WM_GETICON(大图标),再退窗口类注册图标。
+fn window_icon() -> Option<(u32, u32, Vec<u8>)> {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_invalid() {
+            return None;
+        }
+        // ICON_BIG = 1(32x32);取不到再试窗口类的大/小图标
+        let lres = SendMessageW(hwnd, WM_GETICON, Some(WPARAM(1)), None);
+        let icon = HICON(lres.0 as *mut std::ffi::c_void);
+        if !icon.is_invalid() {
+            if let Some(rgba) = hicon_to_rgba(icon) {
+                return Some(rgba);
+            }
+        }
+        for idx in [GCLP_HICON, GCLP_HICONSM] {
+            let h = GetClassLongPtrW(hwnd, idx);
+            if h != 0 {
+                let ic = HICON(h as *mut std::ffi::c_void);
+                if let Some(rgba) = hicon_to_rgba(ic) {
+                    return Some(rgba);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -291,6 +379,27 @@ unsafe fn hicon_to_rgba(icon: HICON) -> Option<(u32, u32, Vec<u8>)> {
         &mut bmi,
         DIB_RGB_COLORS,
     );
+    // 掩码(1bpp,按 32bpp 读出便于取值):掩码非黑的像素 = 透明。
+    // 大量图标 hbmColor 里的 alpha 恒为 0,透明信息只存在掩码中;忽略掩码会得到
+    // 一张全透明的图 —— 表现就是「图标没显示出来」。
+    let mut mask: Option<Vec<u8>> = None;
+    if !ii.hbmMask.is_invalid() {
+        let mut mbmi = BITMAPINFO::default();
+        mbmi.bmiHeader = bmi.bmiHeader;
+        let mut mp = vec![0u8; (w * h * 4) as usize];
+        let got = GetDIBits(
+            hdc,
+            ii.hbmMask,
+            0,
+            h,
+            Some(mp.as_mut_ptr() as *mut std::ffi::c_void),
+            &mut mbmi,
+            DIB_RGB_COLORS,
+        );
+        if got != 0 {
+            mask = Some(mp);
+        }
+    }
     let _ = DeleteDC(hdc);
     let _ = DeleteObject(HGDIOBJ(ii.hbmColor.0));
     if !ii.hbmMask.is_invalid() {
@@ -299,10 +408,42 @@ unsafe fn hicon_to_rgba(icon: HICON) -> Option<(u32, u32, Vec<u8>)> {
     if lines == 0 {
         return None;
     }
+
+    // 彩色位图里没有任何 alpha → 用掩码重建;连掩码都没有 → 视为完全不透明
+    let has_alpha = pixels.chunks_exact(4).any(|p| p[3] != 0);
+    if !has_alpha {
+        match &mask {
+            Some(m) => {
+                for (px, mk) in pixels.chunks_exact_mut(4).zip(m.chunks_exact(4)) {
+                    px[3] = if mk[0] == 0 { 255 } else { 0 };
+                }
+            }
+            None => {
+                for px in pixels.chunks_exact_mut(4) {
+                    px[3] = 255;
+                }
+            }
+        }
+    }
+    // 图标颜色是预乘 alpha 的,反预乘还原真实颜色(否则半透明边缘发黑)
+    for px in pixels.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a == 0 || a == 255 {
+            continue;
+        }
+        for c in 0..3 {
+            px[c] = ((px[c] as u32 * 255 + a / 2) / a).min(255) as u8;
+        }
+    }
     // BGRA → RGBA
     for px in pixels.chunks_exact_mut(4) {
         px.swap(0, 2);
     }
+    ilog(&format!(
+        "icon: hicon {w}x{h} premul_alpha={} mask_used={}",
+        has_alpha,
+        !has_alpha && mask.is_some()
+    ));
     Some((w, h, pixels))
 }
 

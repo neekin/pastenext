@@ -123,8 +123,13 @@ impl Db {
     }
 
     pub fn ensure_defaults(&self) {
+        // 平台相关默认快捷键:与 lib.rs 的 DEFAULT_HOTKEY 保持一致
+        #[cfg(target_os = "windows")]
+        let default_hotkey: &str = "Ctrl+Alt+V";
+        #[cfg(not(target_os = "windows"))]
+        let default_hotkey: &str = "CmdOrCtrl+Shift+V";
         for (k, v) in [
-            ("hotkey", "CmdOrCtrl+Shift+V"),
+            ("hotkey", default_hotkey),
             ("max_items", "0"),
             ("retention_days", "0"),
             ("theme", "system"),

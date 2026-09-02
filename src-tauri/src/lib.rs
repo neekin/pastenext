@@ -213,6 +213,16 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db = Db::open(&dir.join("paste-next.db")).map_err(std::io::Error::other)?;
             db.ensure_defaults();
+            // 一次性迁移:旧版本在 Windows 上种下的默认快捷键是 CmdOrCtrl+Shift+V
+            // (与多数应用的「纯文本粘贴」冲突),统一升级为 Ctrl+Alt+V。
+            // 打标记防重复:用户之后若手动改回 Ctrl+Shift+V 不再被覆盖。
+            #[cfg(target_os = "windows")]
+            if db.get_setting("hotkey_default_migrated").as_deref() != Some("1") {
+                if db.get_setting("hotkey").as_deref() == Some("CmdOrCtrl+Shift+V") {
+                    db.set_setting("hotkey", "Ctrl+Alt+V");
+                }
+                db.set_setting("hotkey_default_migrated", "1");
+            }
             // 启动时按保存时长策略清理一次过期历史
             let retention: i64 = db
                 .get_setting("retention_days")
