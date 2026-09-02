@@ -1,6 +1,7 @@
 use crate::model::{AppInfo, RawContent};
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, POINT};
+use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
     OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
@@ -15,8 +16,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
     VK_CONTROL,
 };
-use windows::Win32::UI::Shell::{DragQueryFileW, DROPFILES};
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+use windows::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+};
+use windows::Win32::UI::Shell::{DragQueryFileW, SHGetFileInfoW, DROPFILES, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, GetForegroundWindow, GetIconInfo, GetWindowThreadProcessId, HICON, ICONINFO,
+};
 
 const VK_V: u16 = 0x56;
 
@@ -212,8 +219,98 @@ pub fn frontmost_app() -> Option<AppInfo> {
         let name = std::path::Path::new(&path)
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())?;
-        Some(AppInfo { name, bundle: None })
+        Some(AppInfo {
+            name,
+            bundle: None,
+            exe_path: Some(path),
+        })
     }
+}
+
+/// 取来源 App 的图标,返回 (宽, 高, RGBA)。取不到返回 None。
+/// 用 SHGetFileInfoW 按 exe 路径取系统图标,再经 GetIconInfo + GetDIBits 转 RGBA。
+pub fn app_icon(info: &AppInfo) -> Option<(u32, u32, Vec<u8>)> {
+    let path = info.exe_path.as_ref()?;
+    unsafe {
+        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut shfi: SHFILEINFOW = std::mem::zeroed();
+        // 不用 SHGFI_USEFILEATTRIBUTES:要读真实文件图标,dwFileAttributes 传 0 即可
+        let ret = SHGetFileInfoW(
+            PCWSTR(wide.as_ptr()),
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            Some(&mut shfi as *mut SHFILEINFOW),
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        );
+        if ret == 0 || shfi.hIcon.is_invalid() {
+            return None;
+        }
+        let rgba = hicon_to_rgba(shfi.hIcon);
+        let _ = DestroyIcon(shfi.hIcon);
+        rgba
+    }
+}
+
+/// HICON → RGBA 像素:取彩色位图后用 GetDIBits 读 32bpp,再 BGRA→RGBA。
+unsafe fn hicon_to_rgba(icon: HICON) -> Option<(u32, u32, Vec<u8>)> {
+    let mut ii = ICONINFO::default();
+    if GetIconInfo(icon, &mut ii).is_err() || ii.hbmColor.is_invalid() {
+        return None;
+    }
+    let mut bm = BITMAP::default();
+    let n = GetObjectW(
+        HGDIOBJ(ii.hbmColor.0),
+        std::mem::size_of::<BITMAP>() as i32,
+        Some(&mut bm as *mut _ as *mut std::ffi::c_void),
+    );
+    if n == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0 {
+        return None;
+    }
+    let w = bm.bmWidth as u32;
+    let h = bm.bmHeight as u32;
+
+    let hdc = CreateCompatibleDC(None);
+    let mut bmi = BITMAPINFO::default();
+    bmi.bmiHeader = BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: w as i32,
+        // 负值 = top-down,避免拿到上下颠倒的图像
+        biHeight: -(h as i32),
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB.0,
+        ..Default::default()
+    };
+    let mut pixels = vec![0u8; (w * h * 4) as usize];
+    let lines = GetDIBits(
+        hdc,
+        ii.hbmColor,
+        0,
+        h,
+        Some(pixels.as_mut_ptr() as *mut std::ffi::c_void),
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+    let _ = DeleteDC(hdc);
+    let _ = DeleteObject(HGDIOBJ(ii.hbmColor.0));
+    if !ii.hbmMask.is_invalid() {
+        let _ = DeleteObject(HGDIOBJ(ii.hbmMask.0));
+    }
+    if lines == 0 {
+        return None;
+    }
+    // BGRA → RGBA
+    for px in pixels.chunks_exact_mut(4) {
+        px.swap(0, 2);
+    }
+    Some((w, h, pixels))
+}
+
+/// 按应用名反查 exe 路径。Windows 没有可靠的「应用名 → exe 路径」映射
+/// (需遍历注册表 App Paths / 开始菜单快捷方式,且匹配率低),
+/// 故历史回填在 Windows 上不做 —— 老条目取不到图标就按「不显示」处理。
+pub fn resolve_app_path(_name: &str) -> Option<String> {
+    None
 }
 
 /// Windows 上面板隐藏后系统会自动恢复焦点,无需主动激活

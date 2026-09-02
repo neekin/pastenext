@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS clips (
   byte_size INTEGER NOT NULL DEFAULT 0,
   hash TEXT NOT NULL,
   source_app TEXT,
+  source_app_key TEXT,
   note TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   last_used_at INTEGER NOT NULL,
@@ -59,11 +60,12 @@ CREATE TABLE IF NOT EXISTS settings (
 /// 1. 把 SCHEMA_VERSION 加 1
 /// 2. 在 MIGRATIONS 末尾追加一条从旧版本升级到新版本的 SQL
 /// 3. 启动时 run_migrations 会自动按顺序执行,不会丢用户数据
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// MIGRATIONS[i] 表示从版本 i+1 升级到版本 i+2 的 SQL。
 /// MIGRATIONS[0] 是基线(0 → 1):当前 SCHEMA 就是版本 1,老库直接升版本号即可。
-const MIGRATIONS: &[&str] = &[""];
+/// MIGRATIONS[1] (1 → 2):新增来源 App 图标缓存 key 列(老行留 NULL,由历史回填异步补齐)。
+const MIGRATIONS: &[&str] = &["", "ALTER TABLE clips ADD COLUMN source_app_key TEXT;"];
 
 /// 执行数据库迁移。每次打开数据库时调用,确保老用户的数据能平滑升级。
 fn run_migrations(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), String> {
@@ -224,8 +226,8 @@ impl Db {
             .as_ref()
             .map(|v| serde_json::to_string(v).unwrap());
         let _ = conn.execute(
-            "INSERT INTO clips (kind, text, html, image_path, file_paths, byte_size, hash, source_app, created_at, last_used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            "INSERT INTO clips (kind, text, html, image_path, file_paths, byte_size, hash, source_app, source_app_key, created_at, last_used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
             params![
                 c.kind.as_str(),
                 c.text,
@@ -235,6 +237,7 @@ impl Db {
                 c.byte_size,
                 c.hash,
                 c.source_app,
+                c.source_app_key,
                 now
             ],
         );
@@ -348,6 +351,8 @@ impl Db {
             image_path: row.get("image_path")?,
             file_paths: file_paths.and_then(|s| serde_json::from_str(&s).ok()),
             source_app: row.get("source_app")?,
+            source_app_key: row.get("source_app_key")?,
+            byte_size: row.get("byte_size")?,
             note: row.get("note")?,
             created_at: row.get("created_at")?,
             last_used_at: row.get("last_used_at")?,
@@ -536,5 +541,32 @@ impl Db {
         stmt.query_map([], |r| r.get(0))
             .map(|rows| rows.filter_map(|r| r.ok()).collect())
             .unwrap_or_default()
+    }
+
+    /// 历史回填:列出所有尚未绑定图标 key 的来源应用名。
+    pub fn get_source_apps_without_keys(&self) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT DISTINCT source_app FROM clips
+             WHERE source_app IS NOT NULL AND source_app <> ''
+               AND source_app_key IS NULL",
+        ) else {
+            return Vec::new();
+        };
+        stmt.query_map([], |r| r.get(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
+    }
+
+    /// 历史回填:按来源应用名给尚未绑定 key 的条目写入 key,返回受影响行数。
+    pub fn set_source_app_key_by_name(&self, name: &str, key: &str) -> u32 {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE clips SET source_app_key = ?2
+             WHERE source_app = ?1 AND source_app_key IS NULL",
+            params![name, key],
+        )
+        .map(|n| n as u32)
+        .unwrap_or(0)
     }
 }

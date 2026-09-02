@@ -79,6 +79,10 @@ export const en = {
   "settings.clearHistory": "Clear all clipboard history (boards are not affected)",
   "settings.clearHistory.confirm": "Click again to confirm",
   "settings.clearHistory.button": "Clear History",
+  "settings.rebuildIcons": "Rebuild source icons",
+  "settings.rebuildIcons.desc": "Backfill source app icons for history items (items without an icon stay hidden)",
+  "settings.rebuildIcons.running": "Backfilling…",
+  "settings.rebuildIcons.done": "Backfilled {n} items",
 
   // License
   "license.trial.title": "PasteNext Trial",
@@ -181,6 +185,7 @@ export const en = {
 
   // Clip card
   "clip.empty": "(empty)",
+  "clip.size.chars": "{n} characters",
   "clip.files.more": "+{count} files",
   "clip.moveToBoard": "Move to board",
   "clip.moveToHistory": "History",

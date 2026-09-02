@@ -79,6 +79,10 @@ export const zhCN = {
   "settings.clearHistory": "清空所有剪贴板历史（不影响看板收藏）",
   "settings.clearHistory.confirm": "再点一次确认",
   "settings.clearHistory.button": "清空历史",
+  "settings.rebuildIcons": "重建来源图标",
+  "settings.rebuildIcons.desc": "为历史条目按来源应用补齐图标（取不到的条目保持不显示）",
+  "settings.rebuildIcons.running": "补齐中…",
+  "settings.rebuildIcons.done": "已补齐 {n} 条",
 
   // License
   "license.trial.title": "PasteNext 试用中",
@@ -181,6 +185,7 @@ export const zhCN = {
 
   // Clip card
   "clip.empty": "（空）",
+  "clip.size.chars": "{n} 字符",
   "clip.files.more": "+{count} 个文件",
   "clip.moveToBoard": "移动到看板",
   "clip.moveToHistory": "历史",

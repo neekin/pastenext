@@ -10,6 +10,14 @@ export default function App() {
   const isSettings = window.location.pathname.endsWith("settings.html");
   const { setLocale } = useI18n();
 
+  // 启动后台回填来源图标:老数据只有应用名,按名反查图标写回 DB。
+  // fire-and-forget;有补齐时 Rust 端广播 clips-updated,列表自动刷新。
+  useEffect(() => {
+    if (isSettings) return;
+    api.backfillSourceAppKeys().catch(() => {});
+    // App 单例常驻,只在首次挂载跑一次
+  }, [isSettings]);
+
   useEffect(() => {
     const refresh = () =>
       api

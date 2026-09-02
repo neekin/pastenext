@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod i18n;
+mod icons;
 mod portable;
 mod license;
 mod model;
@@ -347,6 +348,8 @@ pub fn run() {
             commands::add_excluded_app,
             commands::remove_excluded_app,
             commands::get_source_apps,
+            commands::get_app_icon_base64,
+            commands::backfill_source_app_keys,
             commands::get_frontmost_app,
             commands::get_accessibility_trusted,
             commands::request_accessibility,

@@ -65,6 +65,10 @@ export const api = {
   addExcludedApp: (app: string) => invoke<void>("add_excluded_app", { app }),
   removeExcludedApp: (app: string) => invoke<void>("remove_excluded_app", { app }),
   getSourceApps: () => invoke<string[]>("get_source_apps"),
+  /** 取来源 App 图标的 data URL(base64);无图标返回 null */
+  getAppIcon: (key: string) => invoke<string | null>("get_app_icon_base64", { key }),
+  /** 历史回填:为老条目按应用名补齐图标并写回 DB,返回补齐条数 */
+  backfillSourceAppKeys: () => invoke<number>("backfill_source_app_keys"),
   getFrontmostApp: () => invoke<{ name: string; bundle: string | null } | null>("get_frontmost_app"),
   getAccessibilityTrusted: () => invoke<boolean>("get_accessibility_trusted"),
   requestAccessibility: () => invoke<boolean>("request_accessibility"),
@@ -80,6 +84,21 @@ export interface UpdateInfo {
   latest: string;
   hasUpdate: boolean;
   url: string;
+}
+
+/** 来源 App 图标的模块级缓存:同一 key 全列表共享一条 IPC,滚动列表不重复取。
+ * 失败(null)不缓存,便于后续回填/捕获落盘后重试。 */
+const appIconCache = new Map<string, Promise<string | null>>();
+export function getAppIconCached(key: string): Promise<string | null> {
+  let p = appIconCache.get(key);
+  if (!p) {
+    p = api.getAppIcon(key).catch(() => null);
+    p.then((v) => {
+      if (v == null) appIconCache.delete(key);
+    });
+    appIconCache.set(key, p);
+  }
+  return p;
 }
 
 /** 检测 GitHub Releases 上的最新版本,与当前版本做语义化比较。零额外依赖(CSP 为 null 允许外连)。 */

@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-fn sha_hex(bytes: &[u8]) -> String {
+pub fn sha_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(bytes);
     h.finalize()

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import DOMPurify from "dompurify";
-import { api, onClipsUpdated } from "../api";
+import { api, onClipsUpdated, getAppIconCached } from "../api";
 import ClipImage from "./ClipImage";
 import { useI18n } from "../i18n";
 import type { Board, Clip } from "../types";
@@ -23,6 +23,22 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
   const [tagName, setTagName] = useState("");
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [flash, setFlash] = useState("");
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
+
+  // 来源 App 图标:随 cur.sourceAppKey 变化重新取(模块级缓存)
+  useEffect(() => {
+    let alive = true;
+    if (cur.sourceAppKey) {
+      getAppIconCached(cur.sourceAppKey).then((u) => {
+        if (alive) setIconUrl(u);
+      });
+    } else {
+      setIconUrl(null);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [cur.sourceAppKey]);
 
   useEffect(() => {
     api
@@ -282,7 +298,14 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
         </section>
 
         <section className="text-xs text-neutral-400 space-y-0.5">
-          <div>{t("detail.source")}:{cur.sourceApp || t("detail.source.unknown")}</div>
+          <div className="flex items-center gap-1.5">
+            {iconUrl && (
+              <img src={iconUrl} alt="" draggable={false} className="w-4 h-4 shrink-0 rounded-[4px]" />
+            )}
+            <span>
+              {t("detail.source")}:{cur.sourceApp || t("detail.source.unknown")}
+            </span>
+          </div>
           <div>{t("detail.copiedAt")}:{new Date(cur.createdAt).toLocaleString()}</div>
           <div>{t("detail.useCount")}:{cur.useCount}</div>
         </section>

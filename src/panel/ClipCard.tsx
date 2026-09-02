@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
 import DOMPurify from "dompurify";
-import { api } from "../api";
+import { api, getAppIconCached } from "../api";
 import ClipImage from "./ClipImage";
-import { useI18n } from "../i18n";
+import { useI18n, type I18nKey } from "../i18n";
 import type { Board, Clip } from "../types";
 
-/** 类型视觉主题:色带 + 徽章配色 */
-const KIND_THEME: Record<string, { bar: string; badge: string; icon: string }> = {
-  text: { bar: "bg-slate-400/70", badge: "bg-slate-500/15 text-slate-600 dark:text-slate-300", icon: "T" },
-  rich_text: { bar: "bg-sky-500/70", badge: "bg-sky-500/15 text-sky-600 dark:text-sky-300", icon: "¶" },
-  image: { bar: "bg-emerald-500/70", badge: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300", icon: "▣" },
-  files: { bar: "bg-amber-500/70", badge: "bg-amber-500/15 text-amber-600 dark:text-amber-300", icon: "▤" },
+/** 类型视觉主题:header 渐变背景 + 类型名 i18n key(类型色带已升级为整片 header) */
+const KIND_THEME: Record<string, { header: string; labelKey: I18nKey }> = {
+  text: { header: "bg-gradient-to-br from-slate-400 to-slate-500", labelKey: "panel.kind.text" },
+  rich_text: { header: "bg-gradient-to-br from-sky-500 to-sky-600", labelKey: "panel.kind.richText" },
+  image: { header: "bg-gradient-to-br from-emerald-500 to-emerald-600", labelKey: "panel.kind.image" },
+  files: { header: "bg-gradient-to-br from-amber-500 to-amber-600", labelKey: "panel.kind.files" },
 };
 
 /** 按扩展名给文件一个可辨识的图标 */
@@ -40,6 +40,21 @@ function relTime(ts: number, t: (key: "time.justNow" | "time.minutesAgo" | "time
   return new Date(ts).toLocaleDateString();
 }
 
+/** 右下角尺寸信息:Text/RichText 显示字符数;Image/Files 显示换算后的总字节数(如 2.3M / 1.2G)。无有效值返回 null */
+function sizeLabel(clip: Clip, t: (key: "clip.size.chars", vars?: Record<string, string | number>) => string): string | null {
+  if (clip.kind === "text" || clip.kind === "rich_text") {
+    const n = (clip.text ?? "").length;
+    return n > 0 ? t("clip.size.chars", { n }) : null;
+  }
+  const b = clip.byteSize;
+  if (!b || b <= 0) return null;
+  const fmt = (v: number) => (v >= 100 ? Math.round(v).toString() : v.toFixed(1).replace(/\.0$/, ""));
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${fmt(b / 1024)}K`;
+  if (b < 1024 * 1024 * 1024) return `${fmt(b / 1024 / 1024)}M`;
+  return `${fmt(b / 1024 / 1024 / 1024)}G`;
+}
+
 interface Props {
   clip: Clip;
   selected: boolean;
@@ -56,6 +71,23 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
   const { t } = useI18n();
   const rel = useMemo(() => relTime(clip.createdAt, t), [clip.createdAt, t]);
   const theme = KIND_THEME[clip.kind] ?? KIND_THEME.text;
+  const sizeText = useMemo(() => sizeLabel(clip, t), [clip, t]);
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
+
+  // 来源 App 图标:按 key 取 data URL(模块级缓存,同一 App 全列表共享一次 IPC)
+  useEffect(() => {
+    let alive = true;
+    if (clip.sourceAppKey) {
+      getAppIconCached(clip.sourceAppKey).then((u) => {
+        if (alive) setIconUrl(u);
+      });
+    } else {
+      setIconUrl(null);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [clip.sourceAppKey]);
 
   useEffect(() => {
     if (selected) {
@@ -164,8 +196,21 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
           : "ring-black/10 dark:ring-white/10 hover:ring-indigo-400/60"
       } bg-neutral-50/90 dark:bg-neutral-800/70`}
     >
-      {/* 顶部类型色带:扫视时一眼区分文本 / 富文本 / 图片 / 文件 */}
-      <div className={`h-[3px] w-full shrink-0 ${theme.bar}`} />
+      {/* 顶部 70px header:类型色渐变背景。左侧类型名 + 相对时间,右侧来源 App 图标(80% 不透明融入背景,无图标不显示) */}
+      <div className={`h-[70px] w-full shrink-0 px-3 flex items-center justify-between gap-2 ${theme.header}`}>
+        <div className="min-w-0 text-white">
+          <div className="text-[15px] font-bold leading-5 truncate">{t(theme.labelKey)}</div>
+          <div className="text-[11px] leading-4 opacity-80">{rel}</div>
+        </div>
+        {iconUrl && (
+          <img
+            src={iconUrl}
+            alt={clip.sourceApp ?? ""}
+            draggable={false}
+            className="w-[50px] h-[50px] shrink-0 opacity-80 pointer-events-none select-none"
+          />
+        )}
+      </div>
 
       <div className="flex-1 overflow-hidden p-2.5 pt-2">{preview()}</div>
 
@@ -176,23 +221,17 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
         </div>
       )}
 
+      {/* 底部信息栏:类型徽章与相对时间已上移 header,保留来源名 + 使用次数 + 标签 + 尺寸 */}
       <div className="px-2.5 py-1.5 border-t border-black/5 dark:border-white/10 flex items-center justify-between gap-1 text-[10.5px] text-neutral-400 dark:text-neutral-500">
-        <span className="truncate flex items-center gap-1">
-          {/* 类型徽章:配合顶部色带,颜色 + 形状双重区分 */}
-          <span
-            className={`w-[15px] h-[15px] shrink-0 rounded text-[9px] font-bold flex items-center justify-center ${theme.badge}`}
-          >
-            {theme.icon}
-          </span>
-          {clip.sourceApp || t("detail.source.unknown")} · {rel}
-        </span>
-        <span className="flex items-center gap-1 shrink-0">
+        <span className="truncate">{clip.sourceApp || t("detail.source.unknown")}</span>
+        <span className="flex items-center gap-1.5 shrink-0">
           {clip.useCount > 0 && (
             <span title={t("detail.useCount") + ` ${clip.useCount}`} className="tabular-nums">
               ↻{clip.useCount}
             </span>
           )}
           {clip.tags.length > 0 && <span title={clip.tags.map((t) => t.name).join(", ")}>🏷️</span>}
+          {sizeText && <span className="tabular-nums">{sizeText}</span>}
         </span>
       </div>
 

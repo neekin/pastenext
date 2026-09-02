@@ -1,6 +1,7 @@
 use crate::db::Db;
 use crate::model::{AppInfo, Board, Clip, ClipKind, Tag};
 use crate::platform;
+use crate::util;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
 use tauri_plugin_autostart::ManagerExt as _;
@@ -161,12 +162,16 @@ fn write_clip(clip: &Clip, plain: bool) -> Result<(), String> {
         let path = clip.image_path.clone().ok_or("图片文件缺失")?;
         let img = image::open(&path).map_err(|e| e.to_string())?.to_rgba8();
         let (w, h) = img.dimensions();
+        let raw = img.into_raw();
+        let hash = util::hash_rgba(w, h, &raw);
         cb.set_image(arboard::ImageData {
             width: w as usize,
             height: h as usize,
-            bytes: std::borrow::Cow::Owned(img.into_raw()),
+            bytes: std::borrow::Cow::Owned(raw),
         })
         .map_err(|e| e.to_string())?;
+        // 标记刚写回剪贴板的图片,供 monitor 跳过自身写回(抑制 Windows 自触发重复)
+        crate::monitor::mark_self_write(&hash);
         return Ok(());
     }
     let text = clip.text.clone().unwrap_or_default();
@@ -401,6 +406,56 @@ pub fn remove_excluded_app(db: State<Db>, app_name: String) -> Result<(), String
 #[tauri::command]
 pub fn get_source_apps(db: State<Db>) -> Vec<String> {
     db.get_source_apps()
+}
+
+/// 取来源 App 图标的 data URL(base64)。
+/// 不走 asset:// 协议 —— 复用 v1.0.15 的经验:Windows 便携模式下
+/// asset 协议作用域会拦截 $APPDATA 之外的路径导致图片不显示。
+#[tauri::command]
+pub fn get_app_icon_base64(app: AppHandle, key: String) -> Option<String> {
+    crate::icons::icon_data_url(&app, &key)
+}
+
+/// 历史回填(一体化):为尚未绑定图标 key 的老条目按应用名反查图标并写回 DB。
+/// 返回补齐的条目数。取不到图标的应用名保持 NULL(按「不显示」处理)。
+/// 前端 fire-and-forget 调用,有补齐时广播 clips-updated 让列表自行刷新。
+#[tauri::command]
+pub async fn backfill_source_app_keys(app: AppHandle, db: State<'_, Db>) -> Result<u32, String> {
+    let names = db.get_source_apps_without_keys();
+    let mut total = 0u32;
+    for name in names {
+        if let Some(key) = backfill_one_icon(&app, &name).await {
+            total += db.set_source_app_key_by_name(&name, &key);
+        }
+    }
+    if total > 0 {
+        let _ = app.emit("clips-updated", serde_json::json!({ "reason": "backfill_icons" }));
+    }
+    Ok(total)
+}
+
+/// macOS 上图标抽取触碰 AppKit(NSWorkspace/NSImage),必须派发到主线程执行;
+/// 其它平台线程安全,直接调用。返回 None 表示该应用名取不到图标。
+#[cfg(target_os = "macos")]
+async fn backfill_one_icon(app: &AppHandle, name: &str) -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app2 = app.clone();
+    let name2 = name.to_string();
+    if app
+        .run_on_main_thread(move || {
+            let _ = tx.send(crate::icons::backfill_by_name(&app2, &name2));
+        })
+        .is_err()
+    {
+        return None;
+    }
+    // 阻塞的是 Tauri async worker 线程,不阻塞主线程
+    rx.recv().ok().flatten()
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn backfill_one_icon(app: &AppHandle, name: &str) -> Option<String> {
+    crate::icons::backfill_by_name(app, name)
 }
 
 // ---------- license ----------

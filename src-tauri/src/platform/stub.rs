@@ -16,6 +16,15 @@ pub fn activate_app(_info: &AppInfo) -> bool {
     false
 }
 
+/// 非 macOS/Windows 平台暂不支持来源 App 图标
+pub fn app_icon(_info: &AppInfo) -> Option<(u32, u32, Vec<u8>)> {
+    None
+}
+
+pub fn resolve_app_path(_name: &str) -> Option<String> {
+    None
+}
+
 pub fn write_files(_paths: &[String]) -> Result<(), String> {
     Err("当前平台不支持".into())
 }

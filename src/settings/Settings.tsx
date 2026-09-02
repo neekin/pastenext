@@ -261,6 +261,8 @@ export default function Settings() {
   const [autostart, setAutostart] = useState(false);
   const [maxItems, setMaxItems] = useState("0");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [rebuildIconsBusy, setRebuildIconsBusy] = useState(false);
+  const [rebuildIconsMsg, setRebuildIconsMsg] = useState("");
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const [axTrusted, setAxTrusted] = useState(true);
   const [version, setVersion] = useState("");
@@ -707,6 +709,35 @@ export default function Settings() {
               }}
               className={inputCls}
             />
+          </div>
+          <div className={row}>
+            <span className={lbl} title={t("settings.rebuildIcons.desc")}>
+              {t("settings.rebuildIcons")}
+            </span>
+            <div className="flex items-center gap-2">
+              {rebuildIconsMsg && (
+                <span className="text-[11px] text-neutral-400">{rebuildIconsMsg}</span>
+              )}
+              <button
+                disabled={rebuildIconsBusy}
+                onClick={async () => {
+                  setRebuildIconsBusy(true);
+                  setRebuildIconsMsg(t("settings.rebuildIcons.running"));
+                  try {
+                    const n = await api.backfillSourceAppKeys();
+                    setRebuildIconsMsg(t("settings.rebuildIcons.done", { n }));
+                  } catch {
+                    setRebuildIconsMsg("");
+                  } finally {
+                    setRebuildIconsBusy(false);
+                    setTimeout(() => setRebuildIconsMsg(""), 4000);
+                  }
+                }}
+                className="h-8 px-3 rounded-lg text-xs bg-black/5 dark:bg-white/10 text-neutral-700 dark:text-neutral-200 hover:bg-black/10 dark:hover:bg-white/20 disabled:opacity-50"
+              >
+                {t("settings.rebuildIcons")}
+              </button>
+            </div>
           </div>
           <div className={row}>
             <span className={lbl}>{t("settings.clearHistory")}</span>

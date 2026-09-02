@@ -1,11 +1,12 @@
 use crate::model::{AppInfo, RawContent};
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSApplicationActivationOptions, NSPasteboard, NSPasteboardWriting, NSRunningApplication,
-    NSWorkspace,
+    NSApplicationActivationOptions, NSBitmapImageFileType, NSBitmapImageRep,
+    NSBitmapImageRepPropertyKey, NSImage, NSPasteboard, NSPasteboardWriting,
+    NSRunningApplication, NSWorkspace,
 };
-use objc2_foundation::{NSArray, NSData, NSString, NSURL};
+use objc2_foundation::{NSArray, NSData, NSDictionary, NSString, NSURL};
 use percent_encoding::percent_decode_str;
 
 const UTI_TEXT: &str = "public.utf8-plain-text";
@@ -25,6 +26,9 @@ pub fn read_content() -> Option<RawContent> {
     if let Some(items) = pb.pasteboardItems() {
         let mut paths = Vec::new();
         for item in items.iter() {
+            // 先访问 types() 再取 data:部分写入方(如写完即退出的进程)是惰性许诺数据,
+            // 读过类型声明后 dataForType 的成功率更高(实测对比验证)
+            let _ = item.types();
             if let Some(data) = item.dataForType(&NSString::from_str(UTI_FILE_URL)) {
                 let url = data_to_string(&data);
                 if let Some(p) = file_url_to_path(&url) {
@@ -80,7 +84,97 @@ pub fn frontmost_app() -> Option<AppInfo> {
     let app = ws.frontmostApplication()?;
     let name = app.localizedName().map(|s| s.to_string())?;
     let bundle = app.bundleIdentifier().map(|s| s.to_string());
-    Some(AppInfo { name, bundle })
+    // .app 包路径:用于按 bundle 定位图标文件(历史回填时应用可能已不在运行)
+    let exe_path = app.bundleURL().and_then(|u| u.path()).map(|p| p.to_string());
+    Some(AppInfo {
+        name,
+        bundle,
+        exe_path,
+    })
+}
+
+/// NSImage → RGBA 像素。
+/// 路径:TIFFRepresentation → NSBitmapImageRep → PNG(8-bit)→ image 解码。
+/// 不让 image crate 直接解 TIFF:系统图标常是 16-bit float 采样的 TIFF(实测 Edge 图标
+/// 原始 TIFF 73MB),image 的 tiff 解码器不支持浮点采样;经 NSBitmapImageRep 转 PNG 后
+/// 规整为 8-bit,解码稳定。
+fn ns_image_to_rgba(img: &NSImage) -> Option<(u32, u32, Vec<u8>)> {
+    let tiff = img.TIFFRepresentation()?;
+    let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let props: Retained<NSDictionary<NSBitmapImageRepPropertyKey, AnyObject>> = NSDictionary::new();
+    let png = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &props) }?;
+    let len = png.length();
+    if len == 0 {
+        return None;
+    }
+    // objc2 未暴露 bytes 指针,改用 getBytes_length 拷进 Rust 侧缓冲区(更安全)
+    let mut buf = vec![0u8; len];
+    unsafe {
+        png.getBytes_length(
+            std::ptr::NonNull::new(buf.as_mut_ptr() as *mut std::ffi::c_void)?,
+            len,
+        );
+    }
+    let decoded = image::load_from_memory_with_format(&buf, image::ImageFormat::Png).ok()?;
+    let rgba = decoded.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    Some((w, h, rgba.into_raw()))
+}
+
+/// 取来源 App 的图标,返回 (宽, 高, RGBA)。取不到返回 None。
+pub fn app_icon(info: &AppInfo) -> Option<(u32, u32, Vec<u8>)> {
+    let ws = NSWorkspace::sharedWorkspace();
+    // 1) 有 .app 路径:iconForFile 最通用 —— 应用未运行也能取,历史回填靠这条
+    if let Some(p) = &info.exe_path {
+        let img = ws.iconForFile(&NSString::from_str(p));
+        if let Some(rgba) = ns_image_to_rgba(&img) {
+            return Some(rgba);
+        }
+    }
+    // 2) 有 bundle id:从运行中的应用取(应用已退出/路径失效时的兜底)
+    if let Some(b) = &info.bundle {
+        let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&NSString::from_str(b));
+        for a in apps.iter() {
+            if let Some(icon) = a.icon() {
+                if let Some(rgba) = ns_image_to_rgba(&icon) {
+                    return Some(rgba);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 按应用名反查 .app 路径(历史回填:老数据只有应用名)。
+/// 遍历常见安装目录,按 .app 文件名忽略大小写比对。
+pub fn resolve_app_path(name: &str) -> Option<String> {
+    let target = name.trim().to_lowercase();
+    if target.is_empty() {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = [
+        "/Applications".to_string(),
+        format!("{home}/Applications"),
+        "/System/Applications".to_string(),
+        "/System/Library/CoreServices".to_string(),
+    ];
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("app") {
+                continue;
+            }
+            let stem = p.file_stem()?.to_string_lossy().to_lowercase();
+            if stem == target {
+                return Some(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
 }
 
 /// 按Bundle ID 找到运行中的应用并激活(用于粘贴前恢复目标应用焦点)
