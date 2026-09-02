@@ -213,6 +213,27 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 }
                 return None;
             }
+            // 已入库的同哈希图片:只刷新既有记录,不再落盘第二份 PNG 文件。
+            // Windows 截图工具会在截图数秒后延迟重写剪贴板(实测间隔 0.9s~4.1s 不等),
+            // 2s 内存去重窗口可能拦不住;此处以 DB 为准,任何延迟的重复都只 bump。
+            if db.hash_exists(&hash) {
+                let bump = ClipInsert {
+                    kind: ClipKind::Image,
+                    text: None,
+                    html: None,
+                    image_path: None,
+                    file_paths: None,
+                    byte_size: bytes.len() as i64,
+                    hash: hash.clone(),
+                    source_app: source.as_ref().map(|a| a.name.clone()),
+                    source_app_key: icon_key.clone(),
+                };
+                db.insert_or_bump(&bump);
+                if trace_enabled() {
+                    diag_log(app, "image SKIP (already in db, bumped)");
+                }
+                return None;
+            }
             let dir = images_dir(app);
             std::fs::create_dir_all(&dir).ok()?;
             let path = dir.join(format!("{}.png", now_ms()));

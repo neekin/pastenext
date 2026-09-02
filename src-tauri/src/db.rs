@@ -201,6 +201,17 @@ impl Db {
 
     // ---------- clips ----------
 
+    /// 库里是否已存在该哈希的记录(图片落盘前查重,避免孤儿文件)
+    pub fn hash_exists(&self, hash: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM clips WHERE hash = ?1 LIMIT 1",
+            params![hash],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
     pub fn insert_or_bump(&self, c: &ClipInsert) -> i64 {
         let conn = self.conn.lock().unwrap();
         let now = now_ms();
