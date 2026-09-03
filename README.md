@@ -90,7 +90,6 @@ src-tauri/src/
 ## Roadmap
 
 - [ ] 跨设备同步(WebDAV / 网盘)
-- [ ] 本地 MCP 服务器,向 Claude / Cursor 等 AI 工具暴露剪贴板历史
 - [x] 富文本所见即所得预览(复制的富文本按原样式渲染,只读——本就是剪贴板应用而非编辑器)
 - [x] OCR 图片文字提取(macOS 原生 Vision 框架,离线、支持中英文)
 

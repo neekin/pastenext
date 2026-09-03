@@ -83,7 +83,6 @@ Download them from the Artifacts section of the corresponding run (PasteNext-mac
 ## Roadmap
 
 - [ ] Cross-device sync (WebDAV / cloud drives)
-- [ ] Local MCP server exposing clipboard history to Claude / Cursor and other AI tools
 - [ ] Rich-text WYSIWYG preview and rendering
 - [ ] OCR text extraction from images
 

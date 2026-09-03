@@ -46,11 +46,17 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      # Windows 代码签名改为「构建后由 SignPath 提交签名」(见下方 Windows 专属步骤),
+      # 不再在 build 阶段注入 PFX/thumbprint。未配置 SIGNPATH_* Secrets 时自动回退为未签名产物。
+
       - name: Build
         # PASTENEXT_RELEASE=1 会让 build.rs 在缺少密钥时直接失败,
         # 避免误用仓库里的开发占位密钥产出可公开伪造序列号的安装包。
-        # 三个 secret 需在仓库 Settings → Secrets 中配置:
-        #   PASTENEXT_SIGN_SECRET / PASTENEXT_MAIL_SECRET / PASTENEXT_PURCHASE_URL
+        # 需在仓库 Settings → Secrets 中配置:
+        #   激活/许可: PASTENEXT_SIGN_SECRET / PASTENEXT_MAIL_SECRET / PASTENEXT_PURCHASE_URL
+        #   Windows 代码签名(SignPath 免费 OSS 签名,见下方 Windows 专属步骤):
+        #     配置 SIGNPATH_API_TOKEN / SIGNPATH_ORGANIZATION_ID 后,msi / nsis / exe / 便携 exe 将被签名;
+        #     未配置则保持未签名产物。
         env:
           PASTENEXT_RELEASE: "1"
           PASTENEXT_SIGN_SECRET: ${{ secrets.PASTENEXT_SIGN_SECRET }}
@@ -58,29 +64,96 @@ jobs:
           PASTENEXT_PURCHASE_URL: ${{ secrets.PASTENEXT_PURCHASE_URL }}
         run: pnpm tauri build --target ${{ matrix.target }}
 
-      - name: Package portable zip (Windows)
-        # 解压即用的便携版:把主程序 exe(已统一命名为 PasteNext.exe)打成一个 zip,
-        # 无需安装器、不改注册表。真·便携模式(数据随程序走)由运行时判定:
-        # 在 exe 同级目录放一个名为 portable.mode 的标记文件,应用即把数据库与图片缓存
-        # 写入 exe 同级的 Data/ 目录,而非系统 AppData;不放标记则行为与安装版一致。
-        if: runner.os == 'Windows'
+      # ---- Windows 专属:构建后代码签名(SignPath 免费 OSS 签名)----
+      # 仅当 runner 为 Windows 且配置了 SIGNPATH_API_TOKEN 时启用签名链路;
+      # 否则走下方「未签名回退」分支,保持与改造前一致的未签名产物。
+      # 一次性前置配置(用户完成,非本文件所能代劳):
+      #   1) SignPath Foundation 申请 OSS 证书(需 OSI 许可证 + 公开仓库 + 已有发版记录);
+      #   2) 安装 SignPath GitHub App,并把 GitHub 关联为项目的 Trusted Build System;
+      #   3) 在 SignPath 项目里新建 Artifact Configuration(slug=pastenext-windows):
+      #      根元素 = ZIP archive;签名规则 **/*.exe 与 **/*.msi 走 Microsoft Authenticode(带时间戳);
+      #   4) 仓库 Settings → Secrets 增加 SIGNPATH_API_TOKEN 与 SIGNPATH_ORGANIZATION_ID。
+
+      - name: Stage unsigned Windows artifacts
+        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
         shell: pwsh
         run: |
-          $rel = "src-tauri/target/${{ matrix.target }}/release"
+          $target = "${{ matrix.target }}"
+          $bundle = "src-tauri/target/$target/release/bundle"
+          $rel = "src-tauri/target/$target/release"
+          New-Item -ItemType Directory -Force -Path sign-input | Out-Null
+          # 安装器(msi / nsis)以未签名状态暂存
+          Get-ChildItem "$bundle/msi/*.msi" | Copy-Item -Destination sign-input/ -ErrorAction SilentlyContinue
+          Get-ChildItem "$bundle/nsis/*.exe" | Copy-Item -Destination sign-input/ -ErrorAction SilentlyContinue
+          # 便携版散文件:签名后再打包成 zip(避免依赖 SignPath 对嵌套 zip 的重打包)
+          New-Item -ItemType Directory -Force -Path sign-input/portable | Out-Null
+          $exes = Get-ChildItem "$rel/*.exe"
+          if ($exes.Count -eq 0) { throw "release 目录未找到主程序 exe" }
+          $exes | Copy-Item -Destination sign-input/portable/
+          # 统一品牌名:Tauri 2 二进制名来自 Cargo 包名(paste-next),重命名为 PasteNext.exe
+          $src = Join-Path sign-input/portable "paste-next.exe"
+          if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path sign-input/portable "PasteNext.exe") -Force }
+          # 让"便携版"默认即真·便携:附带标记文件,运行期数据落到 exe 同级 Data/。
+          New-Item -ItemType File -Force -Path (Join-Path sign-input/portable "portable.mode") | Out-Null
+          # 复制同目录运行时 dll(如 WebView2Loader),没有则跳过
+          Get-ChildItem "$rel/*.dll" | Copy-Item -Destination sign-input/portable/ -ErrorAction SilentlyContinue
+
+      - name: Upload unsigned artifact
+        id: upload-unsigned
+        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-${{ matrix.target }}
+          path: sign-input/**
+
+      - name: Submit signing request to SignPath
+        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: 'pastenext'
+          signing-policy-slug: 'release-signing'
+          artifact-configuration-slug: 'pastenext-windows'
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          output-artifact-directory: signed-output
+          wait-for-completion: true
+
+      - name: Assemble signed Windows artifacts
+        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        shell: pwsh
+        run: |
+          # 把 SignPath 返回的已签名文件落到仓库根目录,供下方 Upload 步骤收集
+          Get-ChildItem "signed-output/*.msi" | Copy-Item -Destination ./ -ErrorAction SilentlyContinue
+          Get-ChildItem "signed-output/*.exe" | Copy-Item -Destination ./ -ErrorAction SilentlyContinue
+          # 用已签名的 exe 重新打包便携版 zip(真·便携标记 + 运行时 dll)
           $tmp = "portable-tmp"
+          if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-          # 主程序 exe 名称取决于 Cargo 包名(paste-next),用通配避免写死
+          Copy-Item "signed-output/portable/*" $tmp/ -Recurse -ErrorAction SilentlyContinue
+          Compress-Archive -Path "$tmp/*" -DestinationPath "PasteNext-Windows-x64-portable.zip" -Force
+
+      # ---- 未签名回退分支(未配置 SignPath Secrets 时)----
+      - name: Assemble unsigned Windows artifacts (fallback)
+        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN == ''
+        shell: pwsh
+        run: |
+          $target = "${{ matrix.target }}"
+          $bundle = "src-tauri/target/$target/release/bundle"
+          $rel = "src-tauri/target/$target/release"
+          # 安装器直接落到仓库根目录
+          Get-ChildItem "$bundle/msi/*.msi" | Copy-Item -Destination ./ -ErrorAction SilentlyContinue
+          Get-ChildItem "$bundle/nsis/*.exe" | Copy-Item -Destination ./ -ErrorAction SilentlyContinue
+          # 便携版 zip(未签名)
+          $tmp = "portable-tmp"
+          if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
           $exes = Get-ChildItem "$rel/*.exe"
           if ($exes.Count -eq 0) { throw "release 目录未找到主程序 exe" }
           $exes | Copy-Item -Destination $tmp/
-          # 统一品牌名:Tauri 2 二进制名来自 Cargo 包名(paste-next),
-          # 重命名为 PasteNext.exe,与安装版(productName=PasteNext)保持一致
           $src = Join-Path $tmp "paste-next.exe"
           if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path $tmp "PasteNext.exe") -Force }
-          # 让"便携版"默认即真·便携:附带标记文件,运行期数据落到 exe 同级 Data/。
-          # 用户删掉该文件即可回退到系统 AppData(与普通安装版一致)。
           New-Item -ItemType File -Force -Path (Join-Path $tmp "portable.mode") | Out-Null
-          # 复制同目录运行时 dll(如 WebView2Loader),没有则跳过
           Get-ChildItem "$rel/*.dll" | Copy-Item -Destination $tmp/ -ErrorAction SilentlyContinue
           Compress-Archive -Path "$tmp/*" -DestinationPath "PasteNext-Windows-x64-portable.zip" -Force
 
@@ -99,9 +172,9 @@ jobs:
         with:
           name: PasteNext-windows-${{ matrix.target }}
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
-            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            PasteNext-Windows-x64-portable.zip
+            PasteNext*.msi
+            PasteNext*-setup.exe
+            PasteNext*-portable.zip
 
   release:
     # 推送 v* 标签时自动创建 GitHub Release 并附上安装包
