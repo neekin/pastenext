@@ -259,7 +259,8 @@ pub fn slide_window_to_frame(
     }
 }
 
-/// 相对滑动:从当前 frame 平移 (dx_pt, dy_pt) 个点(正 dy = 屏幕上向上移动)
+/// 相对滑动:从当前 frame 平移 (dx_pt, dy_pt) 个点。
+/// dy_pt 为 AppKit 底部原点坐标:正值 = 窗口在屏幕上向上移动,负值 = 向下。
 pub fn slide_window_by(
     ns_window: *mut std::ffi::c_void,
     dx_pt: f64,

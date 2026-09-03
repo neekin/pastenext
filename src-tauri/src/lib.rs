@@ -202,12 +202,15 @@ fn animate_window_y(
                         );
                         return;
                     }
-                    // 无绝对目标时退回相对位移
+                    // 无绝对目标时退回相对位移。注意坐标系换算:start_y/final_y 是
+                    // 屏幕坐标(向下为正),slide_window_by 的 dy 是 AppKit 底部原点
+                    // 坐标(向上为正),符号相反 —— final_y < start_y(向上移动)时
+                    // dy 为正,窗口上升;反之下降。
                     let scale = win.scale_factor().unwrap_or(1.0).max(0.1);
                     platform::macos::slide_window_by(
                         ns_win,
                         0.0,
-                        (final_y - start_y) as f64 / scale,
+                        (start_y - final_y) as f64 / scale,
                         duration_ms,
                         ease_in,
                     );
