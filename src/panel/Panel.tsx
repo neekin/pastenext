@@ -223,15 +223,13 @@ export default function Panel() {
   }, [detail]);
 
   // 统一的「点空白隐藏面板」语义:
-  // - 点击抽屉内部:交给抽屉自身交互
-  // - 点击交互元素(按钮/输入框/卡片等):元素自身逻辑,面板保留
-  // - 其余(卡片间隙、工具栏空白、底部空区……):关闭抽屉并隐藏面板
-  // 抽屉打开与否行为一致,消除「开了编辑面板后点空白没反应」的顿挫感
+  // - 点击可交互元素(按钮/输入框/卡片/链接等):元素自身逻辑,面板保留
+  // - 其余一切非交互区域 —— 包括编辑抽屉自身的留白 —— 一律关闭抽屉并隐藏面板。
+  //   豁免名单只认「真正可交互的东西」,避免「看起来是空白却点不动」的顿挫感
   const onRootMouseDown = useCallback(
     (e: React.MouseEvent) => {
       const el = e.target instanceof HTMLElement ? e.target : null;
       if (!el) return;
-      if (el.closest("[data-detail-root]")) return;
       if (el.closest("button, input, textarea, select, a, label, [data-clip-card], [data-no-autohide]")) return;
       setDetail(null);
       setDetailAnchor(null);
@@ -261,11 +259,18 @@ export default function Panel() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (detail) return;
+    // Esc 永远退场:先关抽屉,再隐藏面板(不受抽屉编辑状态影响)
     if (e.key === "Escape") {
       e.preventDefault();
+      setDetail(null);
+      setDetailAnchor(null);
       requestHide();
-    } else if (e.metaKey && (e.key === "[" || e.key === "]")) {
+      return;
+    }
+    // 编辑抽屉打开时,其余按键(导航/回车粘贴)不参与面板操作,
+    // 避免在抽屉输入框里打字时误触发卡片导航
+    if (detail) return;
+    if (e.metaKey && (e.key === "[" || e.key === "]")) {
       // ⌘[ / ⌘] 切换上一个/下一个看板
       e.preventDefault();
       cycleBoard(e.key === "]" ? 1 : -1);
