@@ -23,6 +23,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Shell::{DragQueryFileW, SHGetFileInfoW, DROPFILES, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, GetClassLongPtrW, GetForegroundWindow, GetIconInfo, GetWindowThreadProcessId,
     HICON, ICONINFO, GCLP_HICON, GCLP_HICONSM, WM_GETICON,
@@ -445,6 +446,97 @@ unsafe fn hicon_to_rgba(icon: HICON) -> Option<(u32, u32, Vec<u8>)> {
         !has_alpha && mask.is_some()
     ));
     Some((w, h, pixels))
+}
+
+/// 图片 OCR:调用系统内置的 Windows.Media.Ocr(离线、不联网、无需打包模型)。
+/// 返回合并后的多行文本;无文字或失败时返回 None。
+///
+/// 线程模型:WinRT OCR 的异步 `.get()` 在 STA 模式(无消息泵)下会永久阻塞,
+/// 故在 OCR 线程里用 RoInitialize(RO_INIT_MULTITHREADED) 初始化 WinRT(COM MTA 模式)。传入的 langs 用于挑选
+/// 已安装的识别器语言包(优先匹配系统语言),都匹配不上则退回用户配置文件语言。
+pub fn ocr_image(path: &str, langs: &[String]) -> Option<String> {
+    use windows::Graphics::Imaging::BitmapDecoder;
+    use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
+
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    // 本函数预期在独立的 OCR 线程上运行(见 monitor.rs),该线程尚未初始化 COM。
+    // 每个线程只初始化一次;MTA 与捕获线程的 STA 互不干扰(分属不同线程)。
+    thread_local! {
+        static COM_MTA: std::cell::OnceCell<()> = std::cell::OnceCell::new();
+    }
+    COM_MTA.with(|c| {
+        c.get_or_init(|| unsafe {
+            // WinRT 要求线程先 RoInitialize(MTA);仅 CoInitializeEx 不足以让
+            // RoGetActivationFactory 工作(后台线程默认未初始化 WinRT)。
+            let _ = RoInitialize(RO_INIT_MULTITHREADED);
+        });
+    });
+
+    let stream = InMemoryRandomAccessStream::new().ok()?;
+    let writer = DataWriter::CreateDataWriter(&stream).ok()?;
+    writer.WriteBytes(&bytes).ok()?;
+    writer.StoreAsync().ok()?.get().ok()?;
+    stream.Seek(0).ok()?;
+    let decoder = BitmapDecoder::CreateAsync(&stream).ok()?.get().ok()?;
+    let bitmap = decoder.GetSoftwareBitmapAsync().ok()?.get().ok()?;
+    let engine = ocr_engine(langs)?;
+    let result = engine.RecognizeAsync(&bitmap).ok()?.get().ok()?;
+    let lines = result.Lines().ok()?;
+    let n = lines.Size().ok()?;
+    let mut out = Vec::new();
+    for i in 0..n {
+        if let Ok(line) = lines.GetAt(i) {
+            if let Ok(t) = line.Text() {
+                let s = t.to_string_lossy();
+                if !s.trim().is_empty() {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    let text = out.join("\n").trim().to_string();
+    ilog(&format!(
+        "ocr: lines={} chars={}",
+        out.len(),
+        text.chars().count()
+    ));
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// 按传入语言挑选合适的 OcrEngine:
+/// 先用 langs 在已安装语言包里做前缀匹配(如 "zh" 匹配 "zh-Hans");
+/// 都匹配不上则退回用户配置文件语言(TryCreateFromUserProfileLanguages)。
+fn ocr_engine(langs: &[String]) -> Option<windows::Media::Ocr::OcrEngine> {
+    use windows::Media::Ocr::OcrEngine;
+    if let Ok(available) = OcrEngine::AvailableRecognizerLanguages() {
+        let n = available.Size().ok()?;
+        for want in langs {
+            let want = want.to_lowercase();
+            for i in 0..n {
+                if let Ok(lang) = available.GetAt(i) {
+                    if let Ok(tag) = lang.LanguageTag() {
+                        let tag = tag.to_string_lossy().to_lowercase();
+                        if tag.starts_with(&want) {
+                            if let Ok(e) = OcrEngine::TryCreateFromLanguage(&lang) {
+                                ilog(&format!("ocr: engine lang={tag}"));
+                                return Some(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let e = OcrEngine::TryCreateFromUserProfileLanguages().ok();
+    ilog(&format!("ocr: engine user-profile={}", e.is_some()));
+    e
 }
 
 /// 按应用名反查 exe 路径。Windows 没有可靠的「应用名 → exe 路径」映射

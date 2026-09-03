@@ -31,7 +31,7 @@
 
 | 操作 | 快捷键 |
 |---|---|
-| 唤起 / 隐藏面板 | `Cmd+Shift+V`(macOS)/ `Ctrl+Shift+V`(Windows),可在设置中修改 |
+| 唤起 / 隐藏面板 | `Cmd+Shift+V`(macOS)/ `Ctrl+Alt+V`(Windows),可在设置中修改 |
 | 选择条目 | `←` `→`(或 `↑` `↓`) |
 | 粘贴选中条目 | `Enter`(或直接点击卡片) |
 | 关闭面板 | `Esc` / 点击其他窗口 |

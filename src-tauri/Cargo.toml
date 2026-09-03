@@ -1,6 +1,6 @@
 [package]
 name = "paste-next"
-version = "1.0.21"
+version = "1.0.22"
 description = "A local-first clipboard manager for macOS and Windows"
 edition = "2021"
 
@@ -39,12 +39,18 @@ windows = { version = "0.61", features = [
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_Com",
+  "Win32_System_WinRT",
   "Win32_System_Threading",
   "Win32_Storage_FileSystem",
   "Win32_Graphics_Gdi",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
+  # OCR:系统内置的 WinRT Windows.Media.Ocr(离线、不联网、无需打包模型)
+  "Media_Ocr",
+  "Graphics_Imaging",
+  "Globalization",
+  "Storage_Streams",
 ] }
 
 [profile.release]

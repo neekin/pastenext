@@ -22,7 +22,7 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 | Action | Shortcut |
 |---|---|
-| Show / hide panel | `Cmd+Shift+V` (macOS) / `Ctrl+Shift+V` (Windows), configurable |
+| Show / hide panel | `Cmd+Shift+V` (macOS) / `Ctrl+Alt+V` (Windows), configurable |
 | Select item | `←` `→` (or `↑` `↓`) |
 | Paste selected item | `Enter` (or click the card) |
 | Close panel | `Esc` / click another window |
