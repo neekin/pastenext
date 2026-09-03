@@ -88,9 +88,8 @@ pub fn show_panel(app: &AppHandle) {
             }
         }
         let _ = win.set_size(PhysicalSize::new(ms.width, h));
-        // 进场滑入:窗口先出现在「最终位置下方」,再由 animate_window_y 平滑升到最终位(OS 级位移动画)
-        let slide = ((h as f64) * 0.22).max(90.0) as i32;
-        let start_y = y + slide;
+        // 进场滑入:起点完全藏在屏幕底边之外,整块面板从下往上完整升起(Paste 式)
+        let start_y = mp.y + ms.height as i32;
         let _ = win.set_position(PhysicalPosition::new(x, start_y));
         // 绝对目标 frame(点坐标、左下原点):动画终点不依赖「启动时读到的当前
         // frame」,即使动画排队期间 set_panel_height 等移动过窗口,终点也精确贴底。
@@ -126,9 +125,9 @@ pub fn show_panel(app: &AppHandle) {
     let _ = win.show();
     let _ = win.set_focus();
     let _ = app.emit("panel-shown", ());
-    // 启动进场滑入动画:窗口 Y 从 start_y 平滑升到 final_y(220ms easeOut,干脆利落)
+    // 启动进场滑入动画:整块面板从屏幕底边外平滑升到贴底位(240ms easeOut)
     if let Some((x, start_y, final_y, target_frame)) = slide_anim {
-        animate_window_y(app.clone(), x, start_y, final_y, target_frame, 220, false);
+        animate_window_y(app.clone(), x, start_y, final_y, target_frame, 240, false);
     }
 }
 
@@ -139,17 +138,16 @@ pub fn hide_panel(app: &AppHandle) {
                 *g = false;
             }
         }
-        // 退场:160ms easeIn 下滑(加速离场,无拖尾),结束后隐藏窗口
+        // 退场:200ms easeIn 整块下滑、完全退出屏幕底边,结束后隐藏窗口(与进场对称)
         if let Ok(pos) = win.outer_position() {
             let cur_y = pos.y;
             let x = pos.x;
             let h = win.outer_size().unwrap_or_default().height;
-            let slide = ((h as f64) * 0.22).max(90.0) as i32;
-            let to_y = cur_y + slide;
+            let to_y = cur_y + h as i32;
             let app2 = app.clone();
-            animate_window_y(app2.clone(), x, cur_y, to_y, None, 160, true);
+            animate_window_y(app2.clone(), x, cur_y, to_y, None, 200, true);
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(160));
+                std::thread::sleep(std::time::Duration::from_millis(200));
                 let app3 = app2.clone();
                 let _ = app2.run_on_main_thread(move || {
                     // 竞态守卫:退场动画期间用户又按了热键(intent=true)则不隐藏
