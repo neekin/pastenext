@@ -20,7 +20,6 @@ export default function Panel() {
   const detailRootRef = useRef<HTMLDivElement>(null);
   const [addingBoard, setAddingBoard] = useState(false);
   const [newBoard, setNewBoard] = useState("");
-  const [animKey, setAnimKey] = useState(0);
   const [axTrusted, setAxTrusted] = useState(true);
   // 进场可见性闸门:唤起瞬间先把面板隐藏,等 WebView 把窗口几何(全宽)应用完再揭幕,
   // 否则首帧仍是 860 宽,会出现横向滚动条闪烁 + 面板"展开"的跳变
@@ -171,7 +170,6 @@ export default function Panel() {
         requestAnimationFrame(() => {
           fitHeight();
           setEntered(true);
-          setAnimKey((k) => k + 1);
           searchRef.current?.focus();
           searchRef.current?.select();
           if (/Mac|iPhone|iPad/.test(navigator.platform)) {
@@ -299,7 +297,6 @@ export default function Panel() {
       onKeyDown={onKeyDown}
     >
       <div
-        key={animKey}
         className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}
       >
         {/* 高度测量容器:自然高度 = 搜索栏 + 提示条 + 看板栏 + 卡片流,

@@ -30,6 +30,9 @@ const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+V";
 /// 面板唤起前的前台应用(粘贴时恢复它的焦点)
 pub struct PreviousApp(pub Mutex<Option<AppInfo>>);
 
+/// 面板期望可见性:用于退场动画延迟 hide 与快速唤起之间的竞态守卫
+pub struct PanelIntent(pub Mutex<bool>);
+
 /// 面板几何缓存:宽度在进入面板「之前」就按当前屏幕算好并记录下来,
 /// 之后每次唤起直接复用,避免 show() 时重复计算/窗口几何跳动带来的淡入抖动。
 /// 屏幕分辨率变化(换屏/改分辨率)时自动失效重算。
@@ -96,20 +99,28 @@ pub fn show_panel(app: &AppHandle) {
     // AppHandle::show() 是 macOS 专属 API(Tauri 2),其他平台没有这个方法。
     #[cfg(target_os = "macos")]
     let _ = app.show();
-    let shown = win.show();
-    let focused = win.set_focus();
-    eprintln!("[show_panel] show={shown:?} focus={focused:?}");
+    if let Some(state) = app.try_state::<PanelIntent>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = true;
+        }
+    }
+    let _ = win.show();
+    let _ = win.set_focus();
     let _ = app.emit("panel-shown", ());
-    // 启动进场滑入动画:窗口 Y 从 start_y 平滑升到 final_y
+    // 启动进场滑入动画:窗口 Y 从 start_y 平滑升到 final_y(220ms easeOut,干脆利落)
     if let Some((x, start_y, final_y)) = slide_anim {
-        animate_window_y(app.clone(), x, start_y, final_y, 520);
+        animate_window_y(app.clone(), x, start_y, final_y, 220, false);
     }
 }
 
 pub fn hide_panel(app: &AppHandle) {
-    eprintln!("[hide_panel] hiding panel with slide-down");
     if let Some(win) = app.get_webview_window("panel") {
-        // 退场:先平滑下滑到下方,再隐藏窗口(与进场滑入对称)
+        if let Some(state) = app.try_state::<PanelIntent>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = false;
+            }
+        }
+        // 退场:160ms easeIn 下滑(加速离场,无拖尾),结束后隐藏窗口
         if let Ok(pos) = win.outer_position() {
             let cur_y = pos.y;
             let x = pos.x;
@@ -117,23 +128,22 @@ pub fn hide_panel(app: &AppHandle) {
             let slide = ((h as f64) * 0.22).max(90.0) as i32;
             let to_y = cur_y + slide;
             let app2 = app.clone();
+            animate_window_y(app2.clone(), x, cur_y, to_y, 160, true);
             std::thread::spawn(move || {
-                let steps: u64 = 20;
-                let sleep = 200 / steps;
-                for i in 0..=steps {
-                    let t = i as f64 / steps as f64;
-                    let eased = t.powi(3); // easeInCubic: 加速离场,消除缓出(easeOut)在末尾拖尾造成的迟滞感
-                    let y = cur_y + ((to_y - cur_y) as f64 * eased) as i32;
-                    if let Some(w) = app2.get_webview_window("panel") {
-                        let _ = w.set_position(PhysicalPosition::new(x, y));
+                std::thread::sleep(std::time::Duration::from_millis(160));
+                let app3 = app2.clone();
+                let _ = app2.run_on_main_thread(move || {
+                    // 竞态守卫:退场动画期间用户又按了热键(intent=true)则不隐藏
+                    let still_leaving = app3
+                        .try_state::<PanelIntent>()
+                        .map(|s| *s.0.lock().unwrap_or_else(|e| e.into_inner()) == false)
+                        .unwrap_or(true);
+                    if still_leaving {
+                        if let Some(w) = app3.get_webview_window("panel") {
+                            let _ = w.hide();
+                        }
                     }
-                    if i < steps {
-                        std::thread::sleep(std::time::Duration::from_millis(sleep));
-                    }
-                }
-                if let Some(w) = app2.get_webview_window("panel") {
-                    let _ = w.hide();
-                }
+                });
             });
         } else {
             let _ = win.hide();
@@ -144,23 +154,39 @@ pub fn hide_panel(app: &AppHandle) {
 /// OS 级窗口 Y 坐标位移动画:从 start_y 平滑升/降到 final_y。
 /// 纯 CSS 的 transform 只能移动「窗口内的内容」,无法让整个 OS 窗口沿 Y 轴移动;
 /// 真正的「从底部升起 / 沉下」必须在 Rust 侧逐帧 set_position 实现。
-fn animate_window_y(app: AppHandle, x: i32, start_y: i32, final_y: i32, duration_ms: u64) {
-    std::thread::spawn(move || {
-        let steps: u64 = 24;
-        let sleep = duration_ms / steps;
-        for i in 0..=steps {
-            let t = i as f64 / steps as f64;
-            // easeOutCubic:起步快、收尾缓,符合「滑入」的自然手感
-            let eased = 1.0 - (1.0 - t).powi(3);
-            let y = start_y + ((final_y - start_y) as f64 * eased) as i32;
-            if let Some(w) = app.get_webview_window("panel") {
-                let _ = w.set_position(PhysicalPosition::new(x, y));
+/// 窗口纵向滑动动画。macOS 用 NSWindow animator(Core Animation,渲染服务端按
+/// 屏幕刷新率插值,无线程定时器/逐帧 IPC → 丝滑);其他平台退回定时器步进。
+fn animate_window_y(app: AppHandle, x: i32, start_y: i32, final_y: i32, duration_ms: u64, ease_in: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(win) = app2.get_webview_window("panel") {
+                if let Ok(ns_win) = win.ns_window() {
+                    let scale = win.scale_factor().unwrap_or(1.0);
+                    platform::macos::slide_window_y(ns_win, x, start_y, final_y, scale, duration_ms, ease_in);
+                }
             }
-            if i < steps {
-                std::thread::sleep(std::time::Duration::from_millis(sleep));
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::thread::spawn(move || {
+            let steps: u64 = 20;
+            let sleep = duration_ms / steps;
+            for i in 0..=steps {
+                let t = i as f64 / steps as f64;
+                let eased = if ease_in { t.powi(3) } else { 1.0 - (1.0 - t).powi(3) };
+                let y = start_y + ((final_y - start_y) as f64 * eased) as i32;
+                if let Some(w) = app.get_webview_window("panel") {
+                    let _ = w.set_position(PhysicalPosition::new(x, y));
+                }
+                if i < steps {
+                    std::thread::sleep(std::time::Duration::from_millis(sleep));
+                }
             }
-        }
-    });
+        });
+    }
 }
 
 pub(crate) fn toggle_panel(app: &AppHandle) {
@@ -264,6 +290,7 @@ pub fn run() {
                 });
             app.manage(HotkeyState(Mutex::new(registered)));
             app.manage(PreviousApp(Mutex::new(None)));
+            app.manage(PanelIntent(Mutex::new(false)));
             app.manage(PanelGeometry(Mutex::new(None)));
 
             let tray_icon = tray::create(app.handle())?;

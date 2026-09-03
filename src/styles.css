@@ -2,12 +2,16 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* 进场/退场的「从底部升起」改由 Rust 在 OS 窗口级逐帧 set_position 完成:
-   真正的位移发生在整个 OS 窗口上,而非窗口内的内容。
-   因此这里不再对 .panel-surface 做任何 translateY,否则会与窗口动画叠加成
-   双重位移、且两条缓动曲线不一致会显得错位。内容保持原位随窗口一起升起即可。 */
+/* 进场/退场的「从底部升起」由 Rust 在 OS 窗口级用 Core Animation 完成:
+   真正的位移发生在整个 OS 窗口上,窗口内容不做 translateY(双重位移会错位)。
+   这里只做一层内容淡入(仅在 .entered 挂上时过渡),遮蔽唤起瞬间的一帧旧画面,
+   与窗口上滑叠加成 Paste 式的「升起 + 浮现」手感。 */
 .panel-surface {
-  transform: translateY(0);
+  opacity: 0;
+}
+.panel-surface.entered {
+  opacity: 1;
+  transition: opacity 0.18s ease-out;
 }
 
 body {
