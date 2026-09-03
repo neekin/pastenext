@@ -222,21 +222,22 @@ export default function Panel() {
     };
   }, [detail]);
 
-  // 统一的「点空白隐藏面板」语义:
+  // 统一的「点空白隐藏面板」语义(窗口级 capture 监听,先于一切子元素事件):
   // - 点击可交互元素(按钮/输入框/卡片/链接等):元素自身逻辑,面板保留
   // - 其余一切非交互区域 —— 包括编辑抽屉自身的留白 —— 一律关闭抽屉并隐藏面板。
   //   豁免名单只认「真正可交互的东西」,避免「看起来是空白却点不动」的顿挫感
-  const onRootMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
       const el = e.target instanceof HTMLElement ? e.target : null;
       if (!el) return;
       if (el.closest("button, input, textarea, select, a, label, [data-clip-card], [data-no-autohide]")) return;
       setDetail(null);
       setDetailAnchor(null);
       requestHide();
-    },
-    [requestHide]
-  );
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, [requestHide]);
 
   const addBoard = async () => {
     const name = newBoard.trim();
@@ -258,13 +259,16 @@ export default function Panel() {
     setBoardId(order[(idx + dir + order.length) % order.length]);
   };
 
+  // 两段式 Esc:抽屉打开时先关抽屉;抽屉已关再按才隐藏面板
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // Esc 永远退场:先关抽屉,再隐藏面板(不受抽屉编辑状态影响)
     if (e.key === "Escape") {
       e.preventDefault();
-      setDetail(null);
-      setDetailAnchor(null);
-      requestHide();
+      if (detail) {
+        setDetail(null);
+        setDetailAnchor(null);
+      } else {
+        requestHide();
+      }
       return;
     }
     // 编辑抽屉打开时,其余按键(导航/回车粘贴)不参与面板操作,
@@ -297,7 +301,6 @@ export default function Panel() {
     <div
       className="relative h-full flex flex-col select-none overflow-hidden"
       onKeyDown={onKeyDown}
-      onMouseDown={onRootMouseDown}
     >
       <div
         className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}

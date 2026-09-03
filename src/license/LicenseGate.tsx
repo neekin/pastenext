@@ -54,7 +54,7 @@ export default function LicenseGate({ license }: { license: License }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+    <div data-no-autohide className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => void dismiss()} />
 
       <div className="relative w-[430px] max-w-[92vw] rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl ring-1 ring-black/10 dark:ring-white/10 overflow-hidden">
