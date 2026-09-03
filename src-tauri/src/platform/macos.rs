@@ -213,16 +213,17 @@ pub fn write_files(paths: &[String]) -> Result<(), String> {
 
 // ---------- 窗口滑动动画(Core Animation 驱动) ----------
 
+/// NSWindow frame(全局点坐标、左下原点)
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CGRectF {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+pub struct WindowFrame {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
-unsafe impl objc2::encode::Encode for CGRectF {
+unsafe impl objc2::encode::Encode for WindowFrame {
     const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct(
         "CGRect",
         &[
@@ -233,21 +234,36 @@ unsafe impl objc2::encode::Encode for CGRectF {
         ],
     );
 }
-unsafe impl objc2::encode::RefEncode for CGRectF {
+unsafe impl objc2::encode::RefEncode for WindowFrame {
     const ENCODING_REF: objc2::encode::Encoding =
         objc2::encode::Encoding::Pointer(&<Self as objc2::encode::Encode>::ENCODING);
 }
 
-/// 用 NSWindow animator(Core Animation)把窗口滑动到目标 Y。
+/// 用 NSWindow animator(Core Animation)把窗口动画到绝对目标 frame。
 /// CA 在渲染服务端按屏幕刷新率插值 —— 没有线程定时器步进、没有逐帧 IPC,
-/// 任意刷新率(60/120Hz ProMotion)下都丝滑。
-/// 坐标:x / start_y / final_y 为 Tauri 物理像素、左上原点;scale 为当前屏幕缩放。
-pub fn slide_window_y(
+/// 任意刷新率(60/120Hz ProMotion)下都丝滑。目标是绝对值:即使动画启动前
+/// 有其它代码(set_panel_height 等)动过窗口,终点也精确不动摇。
+pub fn slide_window_to_frame(
     ns_window: *mut std::ffi::c_void,
-    x: i32,
-    start_y: i32,
-    final_y: i32,
-    scale: f64,
+    target: WindowFrame,
+    duration_ms: u64,
+    ease_in: bool,
+) {
+    use objc2::runtime::AnyObject;
+    unsafe {
+        let win = ns_window as *mut AnyObject;
+        if win.is_null() {
+            return;
+        }
+        post_slide(win, target, duration_ms, ease_in);
+    }
+}
+
+/// 相对滑动:从当前 frame 平移 (dx_pt, dy_pt) 个点(正 dy = 屏幕上向上移动)
+pub fn slide_window_by(
+    ns_window: *mut std::ffi::c_void,
+    dx_pt: f64,
+    dy_pt: f64,
     duration_ms: u64,
     ease_in: bool,
 ) {
@@ -255,31 +271,38 @@ pub fn slide_window_y(
     use objc2::runtime::AnyObject;
     unsafe {
         let win = ns_window as *mut AnyObject;
-        if win.is_null() || scale <= 0.0 {
+        if win.is_null() {
             return;
         }
-        // NSWindow frame 是左下原点的点坐标:屏幕上向上移动 d(顶部原点坐标),
-        // 对应 origin.y 增加 d(转成点)。窗口尺寸已由 set_size 设置好,这里只移动。
-        let frame: CGRectF = msg_send![win, frame];
-        let target = CGRectF {
-            x: x as f64 / scale,
-            y: frame.y + (final_y - start_y) as f64 / scale,
-            width: frame.width,
-            height: frame.height,
-        };
-
-        let _: () = msg_send![objc2::class!(NSAnimationContext), beginGrouping];
-        let ctx: *mut AnyObject = msg_send![objc2::class!(NSAnimationContext), currentContext];
-        let _: () = msg_send![ctx, setDuration: duration_ms as f64 / 1000.0];
-        // CAMediaTimingFunction 预设:进场 easeOut(起步快收尾缓),退场 easeIn(加速离场)
-        let name = objc2_foundation::NSString::from_str(if ease_in { "easeIn" } else { "easeOut" });
-        let tf: *mut AnyObject =
-            msg_send![objc2::class!(CAMediaTimingFunction), functionWithName: &*name];
-        let _: () = msg_send![ctx, setTimingFunction: tf];
-        let animator: *mut AnyObject = msg_send![win, animator];
-        let _: () = msg_send![animator, setFrame: target, display: true];
-        let _: () = msg_send![objc2::class!(NSAnimationContext), endGrouping];
+        let cur: WindowFrame = msg_send![win, frame];
+        post_slide(
+            win,
+            WindowFrame { x: cur.x + dx_pt, y: cur.y + dy_pt, ..cur },
+            duration_ms,
+            ease_in,
+        );
     }
+}
+
+unsafe fn post_slide(
+    win: *mut objc2::runtime::AnyObject,
+    target: WindowFrame,
+    duration_ms: u64,
+    ease_in: bool,
+) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    let _: () = msg_send![objc2::class!(NSAnimationContext), beginGrouping];
+    let ctx: *mut AnyObject = msg_send![objc2::class!(NSAnimationContext), currentContext];
+    let _: () = msg_send![ctx, setDuration: duration_ms as f64 / 1000.0];
+    // CAMediaTimingFunction 预设:进场 easeOut(起步快收尾缓),退场 easeIn(加速离场)
+    let name = objc2_foundation::NSString::from_str(if ease_in { "easeIn" } else { "easeOut" });
+    let tf: *mut AnyObject =
+        msg_send![objc2::class!(CAMediaTimingFunction), functionWithName: &*name];
+    let _: () = msg_send![ctx, setTimingFunction: tf];
+    let animator: *mut AnyObject = msg_send![win, animator];
+    let _: () = msg_send![animator, setFrame: target, display: true];
+    let _: () = msg_send![objc2::class!(NSAnimationContext), endGrouping];
 }
 
 // ---------- 合成 Cmd+V(CGEvent,需要辅助功能权限) ----------

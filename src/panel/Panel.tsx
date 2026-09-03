@@ -161,6 +161,9 @@ export default function Panel() {
     const u2 = onPanelShown(() => {
       setEntered(false);
       setLeaving(false);
+      // 抽屉不跨唤醒保留(上次会话的编辑状态已过时)
+      setDetail(null);
+      setDetailAnchor(null);
       // 先同步触发内容加载,等数据就绪后再揭幕,避免面板滑入时内容跳动
       reloadRef.current();
       loadCfg();
@@ -219,29 +222,23 @@ export default function Panel() {
     };
   }, [detail]);
 
-  // 编辑抽屉打开时,点击抽屉以外的区域处理如下:
-  // - 点在抽屉内:忽略,交给抽屉自身交互。
-  // - 点在某张卡片上:仅关抽屉,由卡片自身 onClick → pasteClip 负责粘贴并隐藏面板。
-  // - 点其它(空白 / 工具栏等):关抽屉并隐藏整个面板(requestHide)。
-  // 用 capture 阶段拦截,命中检测以抽屉根节点 / 卡片标记为准,避免误伤内部交互。
-  useEffect(() => {
-    if (!detail) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (detailRootRef.current && detailRootRef.current.contains(target)) return;
-      const el = target instanceof HTMLElement ? target : null;
-      if (el && el.closest("[data-clip-card]")) {
-        setDetail(null);
-        setDetailAnchor(null);
-        return;
-      }
+  // 统一的「点空白隐藏面板」语义:
+  // - 点击抽屉内部:交给抽屉自身交互
+  // - 点击交互元素(按钮/输入框/卡片等):元素自身逻辑,面板保留
+  // - 其余(卡片间隙、工具栏空白、底部空区……):关闭抽屉并隐藏面板
+  // 抽屉打开与否行为一致,消除「开了编辑面板后点空白没反应」的顿挫感
+  const onRootMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      if (!el) return;
+      if (el.closest("[data-detail-root]")) return;
+      if (el.closest("button, input, textarea, select, a, label, [data-clip-card], [data-no-autohide]")) return;
       setDetail(null);
       setDetailAnchor(null);
       requestHide();
-    };
-    window.addEventListener("mousedown", onDown, true);
-    return () => window.removeEventListener("mousedown", onDown, true);
-  }, [detail, requestHide]);
+    },
+    [requestHide]
+  );
 
   const addBoard = async () => {
     const name = newBoard.trim();
@@ -295,6 +292,7 @@ export default function Panel() {
     <div
       className="relative h-full flex flex-col select-none overflow-hidden"
       onKeyDown={onKeyDown}
+      onMouseDown={onRootMouseDown}
     >
       <div
         className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}

@@ -61,8 +61,8 @@ pub fn show_panel(app: &AppHandle) {
         .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
         .or_else(|| win.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
-    // 进场滑入所需的几何参数(若有显示器):(x, start_y, final_y)
-    let mut slide_anim: Option<(i32, i32, i32)> = None;
+    // 进场滑入所需的几何参数:(x, start_y, final_y, 绝对目标 frame[点坐标,仅 macOS])
+    let mut slide_anim: Option<(i32, i32, i32, Option<(f64, f64, f64, f64)>)> = None;
     if let Some(m) = monitor {
         let mp = m.position();
         let ms = m.size();
@@ -86,14 +86,33 @@ pub fn show_panel(app: &AppHandle) {
                     *guard = Some((ms.width as i32, ms.height as i32, geo_key));
                 }
             }
-            eprintln!("[show_panel] cached panel width={}", ms.width);
         }
         let _ = win.set_size(PhysicalSize::new(ms.width, h));
         // 进场滑入:窗口先出现在「最终位置下方」,再由 animate_window_y 平滑升到最终位(OS 级位移动画)
         let slide = ((h as f64) * 0.22).max(90.0) as i32;
         let start_y = y + slide;
         let _ = win.set_position(PhysicalPosition::new(x, start_y));
-        slide_anim = Some((x, start_y, y));
+        // 绝对目标 frame(点坐标、左下原点):动画终点不依赖「启动时读到的当前
+        // frame」,即使动画排队期间 set_panel_height 等移动过窗口,终点也精确贴底。
+        #[cfg(target_os = "macos")]
+        let target_frame = (|| {
+            let scale = m.scale_factor().max(0.1);
+            let primary_h_pt = app
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .map(|pm| pm.size().height as f64 / pm.scale_factor().max(0.1))
+                .unwrap_or_else(|| ms.height as f64 / scale);
+            Some((
+                x as f64 / scale,
+                primary_h_pt - (y + h as i32) as f64 / scale,
+                ms.width as f64 / scale,
+                h as f64 / scale,
+            ))
+        })();
+        #[cfg(not(target_os = "macos"))]
+        let target_frame = None;
+        slide_anim = Some((x, start_y, y, target_frame));
     }
     // 若应用曾被 hide,先恢复应用激活状态。
     // AppHandle::show() 是 macOS 专属 API(Tauri 2),其他平台没有这个方法。
@@ -108,8 +127,8 @@ pub fn show_panel(app: &AppHandle) {
     let _ = win.set_focus();
     let _ = app.emit("panel-shown", ());
     // 启动进场滑入动画:窗口 Y 从 start_y 平滑升到 final_y(220ms easeOut,干脆利落)
-    if let Some((x, start_y, final_y)) = slide_anim {
-        animate_window_y(app.clone(), x, start_y, final_y, 220, false);
+    if let Some((x, start_y, final_y, target_frame)) = slide_anim {
+        animate_window_y(app.clone(), x, start_y, final_y, target_frame, 220, false);
     }
 }
 
@@ -128,7 +147,7 @@ pub fn hide_panel(app: &AppHandle) {
             let slide = ((h as f64) * 0.22).max(90.0) as i32;
             let to_y = cur_y + slide;
             let app2 = app.clone();
-            animate_window_y(app2.clone(), x, cur_y, to_y, 160, true);
+            animate_window_y(app2.clone(), x, cur_y, to_y, None, 160, true);
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(160));
                 let app3 = app2.clone();
@@ -155,22 +174,52 @@ pub fn hide_panel(app: &AppHandle) {
 /// 纯 CSS 的 transform 只能移动「窗口内的内容」,无法让整个 OS 窗口沿 Y 轴移动;
 /// 真正的「从底部升起 / 沉下」必须在 Rust 侧逐帧 set_position 实现。
 /// 窗口纵向滑动动画。macOS 用 NSWindow animator(Core Animation,渲染服务端按
-/// 屏幕刷新率插值,无线程定时器/逐帧 IPC → 丝滑);其他平台退回定时器步进。
-fn animate_window_y(app: AppHandle, x: i32, start_y: i32, final_y: i32, duration_ms: u64, ease_in: bool) {
+/// 屏幕刷新率插值,无线程定时器/逐帧 IPC → 丝滑);`target_frame` 是绝对终点
+/// (点坐标、左下原点),保证无论动画何时启动、期间窗口是否被其它代码移动,
+/// 终点都精确。其他平台退回定时器步进(忽略 target_frame,按物理 Y 步进)。
+#[allow(clippy::too_many_arguments)]
+fn animate_window_y(
+    app: AppHandle,
+    x: i32,
+    start_y: i32,
+    final_y: i32,
+    target_frame: Option<(f64, f64, f64, f64)>,
+    duration_ms: u64,
+    ease_in: bool,
+) {
     #[cfg(target_os = "macos")]
     {
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(win) = app2.get_webview_window("panel") {
+                // 先把起点复位(原子化起点与动画,防止此间隙被其它调用移动)
+                let _ = win.set_position(PhysicalPosition::new(x, start_y));
                 if let Ok(ns_win) = win.ns_window() {
-                    let scale = win.scale_factor().unwrap_or(1.0);
-                    platform::macos::slide_window_y(ns_win, x, start_y, final_y, scale, duration_ms, ease_in);
+                    if let Some((fx, fy, fw, fh)) = target_frame {
+                        platform::macos::slide_window_to_frame(
+                            ns_win,
+                            platform::macos::WindowFrame { x: fx, y: fy, width: fw, height: fh },
+                            duration_ms,
+                            ease_in,
+                        );
+                        return;
+                    }
+                    // 无绝对目标时退回相对位移
+                    let scale = win.scale_factor().unwrap_or(1.0).max(0.1);
+                    platform::macos::slide_window_by(
+                        ns_win,
+                        0.0,
+                        (final_y - start_y) as f64 / scale,
+                        duration_ms,
+                        ease_in,
+                    );
                 }
             }
         });
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = target_frame;
         std::thread::spawn(move || {
             let steps: u64 = 20;
             let sleep = duration_ms / steps;

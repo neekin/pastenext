@@ -93,6 +93,7 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
   return (
     <div
       ref={rootRef}
+      data-detail-root
       className="absolute z-50 flex flex-col rounded-2xl bg-white dark:bg-neutral-900 ring-1 ring-black/10 dark:ring-white/15 shadow-2xl overflow-hidden"
     >
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
