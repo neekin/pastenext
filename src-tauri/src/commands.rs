@@ -1,5 +1,5 @@
 use crate::db::Db;
-use crate::model::{AppInfo, Board, Clip, ClipKind, Tag};
+use crate::model::{AppInfo, Board, Clip, ClipKind, SmartCollection, Tag};
 use crate::platform;
 use crate::util;
 use std::sync::Mutex;
@@ -10,6 +10,135 @@ use tauri_plugin_opener::OpenerExt;
 
 /// 当前已注册的全局快捷键,供事件回调比对
 pub struct HotkeyState(pub Mutex<Option<Shortcut>>);
+
+/// 粘贴队列运行态:ids 为用户选定的顺序,pos 指向下一条待粘贴项
+#[derive(Debug, Clone)]
+pub struct QueueData {
+    pub ids: Vec<i64>,
+    pub pos: usize,
+}
+
+/// 队列状态(None = 未激活;Some = 进行中)
+pub struct PasteQueueState(pub Mutex<Option<QueueData>>);
+
+/// 队列状态回报(serde 序列化给前端)
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueStatus {
+    pub active: bool,
+    pub done: bool,
+    pub remaining: usize,
+    pub pasted_id: Option<i64>,
+}
+
+fn queue_inactive() -> QueueStatus {
+    QueueStatus { active: false, done: false, remaining: 0, pasted_id: None }
+}
+
+/// 粘贴队列推进一条:面板隐藏状态下由全局热键或 queue_next 命令调用。
+/// 耗尽后自动清除队列,之后的熱键恢复正常唤起面板行为。
+pub fn queue_advance(app: &AppHandle) -> QueueStatus {
+    let Some(state) = app.try_state::<PasteQueueState>() else {
+        return queue_inactive();
+    };
+    let id = {
+        let mut g = state.0.lock().unwrap();
+        let Some(q) = g.as_mut() else {
+            return queue_inactive();
+        };
+        if q.pos >= q.ids.len() {
+            *g = None;
+            return QueueStatus { active: false, done: true, remaining: 0, pasted_id: None };
+        }
+        let id = q.ids[q.pos];
+        q.pos += 1;
+        id
+    };
+    let db = app.state::<Db>();
+    let _ = paste_clip_internal(app, &db, id, false);
+    let mut g = state.0.lock().unwrap();
+    match g.as_ref() {
+        Some(q) if q.pos >= q.ids.len() => {
+            *g = None;
+            QueueStatus { active: false, done: true, remaining: 0, pasted_id: Some(id) }
+        }
+        Some(q) => QueueStatus { active: true, done: false, remaining: q.ids.len() - q.pos, pasted_id: Some(id) },
+        None => QueueStatus { active: false, done: true, remaining: 0, pasted_id: Some(id) },
+    }
+}
+
+fn queue_is_active(app: &AppHandle) -> bool {
+    app.try_state::<PasteQueueState>()
+        .map(|s| s.0.lock().map(|g| g.is_some()).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn queue_start(
+    app: AppHandle,
+    db: State<Db>,
+    ids: Vec<i64>,
+) -> Result<QueueStatus, String> {
+    if ids.is_empty() {
+        return Err("队列不能为空".into());
+    }
+    // 队列依赖自动粘贴把每条内容送进目标应用
+    if db.get_setting("auto_paste").unwrap_or_else(|| "true".into()) != "true"
+        || !platform::can_auto_paste()
+    {
+        return Err("粘贴队列需要开启「自动粘贴」并授予辅助功能权限".into());
+    }
+    // 校验所有条目存在,避免中途断档
+    for id in &ids {
+        if db.get_clip(*id).is_none() {
+            return Err(format!("条目 {id} 不存在,可能已被删除"));
+        }
+    }
+    *app.state::<PasteQueueState>().0.lock().unwrap() =
+        Some(QueueData { ids: ids.clone(), pos: 0 });
+    let status = queue_advance(&app);
+    Ok(status)
+}
+
+#[tauri::command]
+pub fn queue_next(app: AppHandle) -> QueueStatus {
+    queue_advance(&app)
+}
+
+#[tauri::command]
+pub fn queue_cancel(app: AppHandle) -> QueueStatus {
+    if let Some(state) = app.try_state::<PasteQueueState>() {
+        *state.0.lock().unwrap() = None;
+    }
+    queue_inactive()
+}
+
+#[tauri::command]
+pub fn queue_status(app: AppHandle) -> QueueStatus {
+    let Some(state) = app.try_state::<PasteQueueState>() else {
+        return queue_inactive();
+    };
+    let g = state.0.lock().unwrap();
+    match g.as_ref() {
+        Some(q) => QueueStatus {
+            active: true,
+            done: false,
+            remaining: q.ids.len() - q.pos,
+            pasted_id: None,
+        },
+        None => queue_inactive(),
+    }
+}
+
+// 导出给 lib.rs 热键回调使用
+pub fn queue_try_advance_on_hotkey(app: &AppHandle) -> bool {
+    if queue_is_active(app) {
+        queue_advance(app);
+        true
+    } else {
+        false
+    }
+}
 
 /// 托盘图标句柄,供运行时显隐切换
 pub struct TrayState(pub Mutex<Option<tauri::tray::TrayIcon<tauri::Wry>>>);
@@ -30,6 +159,8 @@ pub fn list_clips(
     kind: Option<ClipKind>,
     board_id: Option<i64>,
     tag: Option<String>,
+    source_app: Option<String>,
+    since: Option<i64>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Clip>, String> {
@@ -38,6 +169,8 @@ pub fn list_clips(
         kind,
         board_id,
         tag.as_deref(),
+        source_app.as_deref(),
+        since,
         limit.unwrap_or(200).clamp(1, 500),
         offset.unwrap_or(0).max(0),
     )
@@ -88,6 +221,19 @@ pub fn edit_clip(app: AppHandle, db: State<Db>, id: i64, text: String) -> Result
 pub fn set_note(app: AppHandle, db: State<Db>, id: i64, note: String) -> Result<(), String> {
     db.set_note(id, &note);
     emit(&app, "note");
+    Ok(())
+}
+
+/// 手动切换某条内容的敏感标记(详情抽屉里操作)
+#[tauri::command]
+pub fn set_clip_sensitive(
+    app: AppHandle,
+    db: State<Db>,
+    id: i64,
+    sensitive: bool,
+) -> Result<(), String> {
+    db.mark_sensitive(id, sensitive);
+    emit(&app, "sensitive");
     Ok(())
 }
 
@@ -401,6 +547,94 @@ pub fn add_excluded_app(db: State<Db>, app_name: String) -> Result<(), String> {
 pub fn remove_excluded_app(db: State<Db>, app_name: String) -> Result<(), String> {
     db.remove_excluded_app(app_name.trim());
     Ok(())
+}
+
+// ---------- 智能集合 ----------
+
+fn notify_settings(app: &AppHandle, key: &str, value: &str) {
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({ "key": key, "value": value }),
+    );
+}
+
+#[tauri::command]
+pub fn get_smart_collections(db: State<Db>) -> Vec<SmartCollection> {
+    db.get_smart_collections()
+}
+
+#[tauri::command]
+pub fn add_smart_collection(
+    app: AppHandle,
+    db: State<Db>,
+    name: String,
+    rule: String,
+    value: String,
+) -> Result<Vec<SmartCollection>, String> {
+    let name = name.trim();
+    let value = value.trim();
+    if name.is_empty() || value.is_empty() {
+        return Err("名称与值不能为空".into());
+    }
+    if rule != "source_app" && rule != "kind" {
+        return Err("不支持的规则类型".into());
+    }
+    let mut list = db.get_smart_collections();
+    if list
+        .iter()
+        .any(|c| c.rule == rule && c.value.eq_ignore_ascii_case(value))
+    {
+        return Err("相同规则的智能集合已存在".into());
+    }
+    let id = format!(
+        "sc-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    list.push(SmartCollection {
+        id,
+        name: name.to_string(),
+        rule: rule.to_string(),
+        value: value.to_string(),
+    });
+    db.save_smart_collections(&list);
+    notify_settings(&app, "smart_collections", &serde_json::to_string(&list).unwrap());
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn remove_smart_collection(
+    app: AppHandle,
+    db: State<Db>,
+    id: String,
+) -> Result<Vec<SmartCollection>, String> {
+    let mut list = db.get_smart_collections();
+    list.retain(|c| c.id != id);
+    db.save_smart_collections(&list);
+    notify_settings(&app, "smart_collections", &serde_json::to_string(&list).unwrap());
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn rename_smart_collection(
+    app: AppHandle,
+    db: State<Db>,
+    id: String,
+    name: String,
+) -> Result<Vec<SmartCollection>, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("名称不能为空".into());
+    }
+    let mut list = db.get_smart_collections();
+    if let Some(c) = list.iter_mut().find(|c| c.id == id) {
+        c.name = name.to_string();
+    }
+    db.save_smart_collections(&list);
+    notify_settings(&app, "smart_collections", &serde_json::to_string(&list).unwrap());
+    Ok(list)
 }
 
 #[tauri::command]

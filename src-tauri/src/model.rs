@@ -46,6 +46,17 @@ pub struct Board {
     pub position: i64,
 }
 
+/// 智能集合:纯查询型的虚拟看板,定义存 settings 的 `smart_collections` JSON。
+/// rule 目前支持 "source_app"(按来源应用)与 "kind"(按内容类型)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SmartCollection {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub rule: String,
+    pub value: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clip {
@@ -66,6 +77,8 @@ pub struct Clip {
     pub last_used_at: i64,
     pub use_count: i64,
     pub board_id: Option<i64>,
+    /// 敏感内容标记:预览打码,详情需手动揭示(见 sensitive.rs)
+    pub sensitive: bool,
     pub tags: Vec<Tag>,
 }
 
@@ -99,4 +112,5 @@ pub struct ClipInsert {
     pub hash: String,
     pub source_app: Option<String>,
     pub source_app_key: Option<String>,
+    pub sensitive: bool,
 }

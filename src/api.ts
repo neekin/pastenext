@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Board, Clip, ClipKind, Tag } from "./types";
+import type { Board, Clip, ClipKind, SmartCollection, Tag } from "./types";
 
 export interface LicenseInfo {
   activated: boolean;
@@ -17,8 +17,17 @@ export interface ListParams {
   kind?: ClipKind | null;
   boardId?: number | null;
   tag?: string | null;
+  sourceApp?: string | null;
+  since?: number | null;
   limit?: number;
   offset?: number;
+}
+
+export interface QueueStatus {
+  active: boolean;
+  done: boolean;
+  remaining: number;
+  pastedId: number | null;
 }
 
 export const api = {
@@ -28,12 +37,21 @@ export const api = {
       kind: p.kind ?? null,
       boardId: p.boardId ?? null,
       tag: p.tag ?? null,
+      sourceApp: p.sourceApp ?? null,
+      since: p.since ?? null,
       limit: p.limit ?? 200,
       offset: p.offset ?? 0,
     }),
   getClip: (id: number) => invoke<Clip | null>("get_clip", { id }),
   readImage: (path: string) => invoke<string>("read_image_base64", { path }),
   getBoards: () => invoke<Board[]>("get_boards"),
+  getSmartCollections: () => invoke<SmartCollection[]>("get_smart_collections"),
+  addSmartCollection: (name: string, rule: string, value: string) =>
+    invoke<SmartCollection[]>("add_smart_collection", { name, rule, value }),
+  removeSmartCollection: (id: string) =>
+    invoke<SmartCollection[]>("remove_smart_collection", { id }),
+  renameSmartCollection: (id: string, name: string) =>
+    invoke<SmartCollection[]>("rename_smart_collection", { id, name }),
   createBoard: (name: string) => invoke<Board>("create_board", { name }),
   renameBoard: (id: number, name: string) => invoke<void>("rename_board", { id, name }),
   deleteBoard: (id: number) => invoke<void>("delete_board", { id }),
@@ -45,6 +63,12 @@ export const api = {
   clearHistory: () => invoke<void>("clear_history"),
   editClip: (id: number, text: string) => invoke<void>("edit_clip", { id, text }),
   setNote: (id: number, note: string) => invoke<void>("set_note", { id, note }),
+  setClipSensitive: (id: number, sensitive: boolean) =>
+    invoke<void>("set_clip_sensitive", { id, sensitive }),
+  queueStart: (ids: number[]) => invoke<QueueStatus>("queue_start", { ids }),
+  queueNext: () => invoke<QueueStatus>("queue_next"),
+  queueCancel: () => invoke<QueueStatus>("queue_cancel"),
+  queueStatus: () => invoke<QueueStatus>("queue_status"),
   addTag: (clipId: number, name: string) => invoke<Tag>("add_tag", { clipId, name }),
   removeTag: (clipId: number, tagId: number) => invoke<void>("remove_tag", { clipId, tagId }),
   moveClipToBoard: (id: number, boardId: number | null) => invoke<void>("move_clip_to_board", { id, boardId }),

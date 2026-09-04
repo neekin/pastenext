@@ -148,7 +148,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
         .as_ref()
         .and_then(|s| crate::icons::ensure_app_icon(app, s));
 
-    let insert = match raw {
+    let mut insert = match raw {
         RawContent::Text { text, html } => {
             if text.trim().is_empty() && html.as_deref().map(str::trim).unwrap_or("").is_empty() {
                 return None;
@@ -163,6 +163,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 hash: util::hash_text(&text),
                 source_app: source.as_ref().map(|a| a.name.clone()),
                 source_app_key: icon_key.clone(),
+                sensitive: false,
             }
         }
         RawContent::Image { bytes, format: src_format } => {
@@ -227,6 +228,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                     hash: hash.clone(),
                     source_app: source.as_ref().map(|a| a.name.clone()),
                     source_app_key: icon_key.clone(),
+                    sensitive: false,
                 };
                 db.insert_or_bump(&bump);
                 if trace_enabled() {
@@ -252,6 +254,7 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 hash,
                 source_app: source.as_ref().map(|a| a.name.clone()),
                 source_app_key: icon_key.clone(),
+                sensitive: false,
             }
         }
         RawContent::Files { paths } => {
@@ -278,21 +281,53 @@ fn capture_inner(app: &AppHandle) -> Option<()> {
                 hash: util::hash_files(&paths),
                 source_app: source.as_ref().map(|a| a.name.clone()),
                 source_app_key: icon_key.clone(),
+                sensitive: false,
             }
         }
     };
+
+    // 敏感信息防护:文本/富文本/文件名在入库前检测;图片在 OCR 回写后复检(见下)。
+    // 模式:mask(默认,记录但打码)/ skip(不记录)/ off(不检测)。
+    let sensitive_mode = db
+        .get_setting("sensitive_mode")
+        .unwrap_or_else(|| "mask".into());
+    let sensitive_mode = sensitive_mode.as_str();
+    if sensitive_mode != "off" {
+        if let Some(text) = &insert.text {
+            if crate::sensitive::is_sensitive(text) {
+                if sensitive_mode == "skip" {
+                    if trace_enabled() {
+                        diag_log(app, "capture SKIP (sensitive content)");
+                    }
+                    return None;
+                }
+                insert.sensitive = true;
+            }
+        }
+    }
 
     let clip_id = db.insert_or_bump(&insert);
 
     // OCR:图片落盘后异步识别文字,结果写回 text 字段(同时让图片可被全文搜索)。
     // 放在独立线程,避免在主线程(尤其 macOS 捕获派发到主线程)上阻塞。
+    // OCR 文本同样过敏感检测:mask → 补打敏感标记;skip → 清空识别文本。
     if insert.kind == ClipKind::Image {
         if let Some(img_path) = insert.image_path.clone() {
             let app2 = app.clone();
+            let sensitive_mode = sensitive_mode.to_string();
             std::thread::spawn(move || {
                 if let Some(text) = crate::ocr::ocr_image_auto(&app2, &img_path) {
                     let db = app2.state::<Db>();
-                    db.set_clip_text(clip_id, &text);
+                    if sensitive_mode != "off" && crate::sensitive::is_sensitive(&text) {
+                        if sensitive_mode == "skip" {
+                            db.set_clip_text(clip_id, "");
+                        } else {
+                            db.set_clip_text(clip_id, &text);
+                            db.mark_sensitive(clip_id, true);
+                        }
+                    } else {
+                        db.set_clip_text(clip_id, &text);
+                    }
                     let _ = app2.emit(
                         "clips-updated",
                         serde_json::json!({ "reason": "ocr", "id": clip_id }),

@@ -24,6 +24,8 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
   const [knownTags, setKnownTags] = useState<string[]>([]);
   const [flash, setFlash] = useState("");
   const [iconUrl, setIconUrl] = useState<string | null>(null);
+  // 敏感内容揭示:仅在当前抽屉会话内有效,关闭后重新打码
+  const [revealed, setRevealed] = useState(false);
 
   // 来源 App 图标:随 cur.sourceAppKey 变化重新取(模块级缓存)
   useEffect(() => {
@@ -110,8 +112,48 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+        {/* 敏感内容守卫:未揭示时遮住内容/预览/OCR 区,笔记/标签/看板不受影响 */}
+        {cur.sensitive && (
+          <div
+            className={`rounded-xl px-3 py-2.5 text-xs flex items-center justify-between gap-2 ${
+              revealed
+                ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            <span>🔒 {revealed ? t("detail.sensitive.revealed") : t("detail.sensitive.masked")}</span>
+            <div className="flex items-center gap-2 shrink-0">
+              {!revealed ? (
+                <button
+                  onClick={() => setRevealed(true)}
+                  className="px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
+                >
+                  {t("detail.sensitive.reveal")}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setRevealed(false)}
+                  className="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20"
+                >
+                  {t("detail.sensitive.remask")}
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  await api.setClipSensitive(cur.id, !cur.sensitive).catch(() => {});
+                  setRevealed(!cur.sensitive);
+                  refresh();
+                }}
+                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                title={t("detail.sensitive.toggleTitle")}
+              >
+                {cur.sensitive ? t("detail.sensitive.unmark") : t("detail.sensitive.mark")}
+              </button>
+            </div>
+          </div>
+        )}
         {editable && (
-          <section>
+          <section className={cur.sensitive && !revealed ? "opacity-30 blur-[5px] pointer-events-none select-none" : ""}>
             <label className="text-xs text-neutral-400">{t("detail.content")}</label>
             {cur.kind === "rich_text" && cur.html && (
               <>
@@ -167,7 +209,7 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
         )}
 
         {cur.kind === "image" && cur.imagePath && (
-          <section>
+          <section className={cur.sensitive && !revealed ? "opacity-30 blur-[5px] pointer-events-none select-none" : ""}>
             <label className="text-xs text-neutral-400">{t("detail.imagePreview")}</label>
             <div className="mt-1 rounded-lg overflow-hidden ring-1 ring-black/10 dark:ring-white/10 bg-black/5 dark:bg-white/10">
               <ClipImage
@@ -179,7 +221,7 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
         )}
 
         {cur.kind === "image" && (
-          <section>
+          <section className={cur.sensitive && !revealed ? "opacity-30 blur-[5px] pointer-events-none select-none" : ""}>
             <div className="flex items-center justify-between">
               <label className="text-xs text-neutral-400">{t("detail.ocr")}</label>
               {cur.text && (

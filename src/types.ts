@@ -12,6 +12,14 @@ export interface Board {
   position: number;
 }
 
+/** 智能集合:纯查询型虚拟看板,规则为来源应用或内容类型 */
+export interface SmartCollection {
+  id: string;
+  name: string;
+  type: "source_app" | "kind";
+  value: string;
+}
+
 export interface Clip {
   id: number;
   kind: ClipKind;
@@ -29,5 +37,7 @@ export interface Clip {
   lastUsedAt: number;
   useCount: number;
   boardId: number | null;
+  /** 敏感内容标记:卡片预览打码,详情需手动揭示 */
+  sensitive: boolean;
   tags: Tag[];
 }

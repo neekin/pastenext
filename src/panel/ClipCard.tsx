@@ -58,13 +58,15 @@ function sizeLabel(clip: Clip, t: (key: "clip.size.chars", vars?: Record<string,
 interface Props {
   clip: Clip;
   selected: boolean;
+  /** 在粘贴队列中的序号(1 起);undefined = 不在队列中 */
+  queueIndex?: number;
   boards: Board[];
   onClick: (e: MouseEvent) => void;
   /** 触发编辑时,把卡片在视口中的位置回传,供编辑浮层锚定到卡片所在列 */
   onDetail: (rect: DOMRect) => void;
 }
 
-export default function ClipCard({ clip, selected, boards, onClick, onDetail }: Props) {
+export default function ClipCard({ clip, selected, queueIndex, boards, onClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -117,6 +119,26 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
   };
 
   const preview = () => {
+    // 敏感内容:实际内容仍在 DOM(支持本机搜索/详情揭示),但视觉打码不可读
+    if (clip.sensitive) {
+      return (
+        <div className="relative w-full h-full overflow-hidden rounded-lg">
+          <div className="pointer-events-none select-none blur-[7px] opacity-50 w-full h-full">
+            {previewRaw()}
+          </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 bg-black/5 dark:bg-black/20">
+            <span className="text-base">🔒</span>
+            <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+              {t("clip.sensitive.masked")}
+            </span>
+          </div>
+        </div>
+      );
+    }
+    return previewRaw();
+  };
+
+  const previewRaw = () => {
     if (clip.kind === "image" && clip.imagePath) {
       return (
         <div className="relative w-full h-full">
@@ -191,11 +213,19 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
       onClick={onClick}
       onDragStart={handleDragStart}
       className={`group relative shrink-0 w-[188px] h-[224px] rounded-xl flex flex-col cursor-grab active:cursor-grabbing transition-all ring-1 overflow-hidden ${
-        selected
-          ? "ring-2 ring-indigo-500 shadow-lg"
-          : "ring-black/10 dark:ring-white/10 hover:ring-indigo-400/60"
+        queueIndex !== undefined
+          ? "ring-2 ring-violet-500 shadow-lg"
+          : selected
+            ? "ring-2 ring-indigo-500 shadow-lg"
+            : "ring-black/10 dark:ring-white/10 hover:ring-indigo-400/60"
       } bg-neutral-50/90 dark:bg-neutral-800/70`}
     >
+      {/* 粘贴队列序号角标(队列成员左上角显示顺位) */}
+      {queueIndex !== undefined && (
+        <span className="absolute -top-1.5 -left-1.5 z-10 w-5 h-5 rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-neutral-900">
+          {queueIndex}
+        </span>
+      )}
       {/* 顶部 70px header:类型色渐变背景。左侧类型名 + 相对时间,右侧来源 App 图标(80% 不透明融入背景,无图标不显示) */}
       <div className={`h-[70px] w-full shrink-0 px-3 flex items-center justify-between gap-2 ${theme.header}`}>
         <div className="min-w-0 text-white">
@@ -230,6 +260,7 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
               ↻{clip.useCount}
             </span>
           )}
+          {clip.sensitive && <span title={t("clip.sensitive.masked")}>🔒</span>}
           {clip.tags.length > 0 && <span title={clip.tags.map((t) => t.name).join(", ")}>🏷️</span>}
           {sizeText && <span className="tabular-nums">{sizeText}</span>}
         </span>
@@ -289,6 +320,19 @@ export default function ClipCard({ clip, selected, boards, onClick, onDetail }: 
               </button>
             ))}
             <div className="my-1 border-t border-black/5 dark:border-white/10" />
+            {clip.sourceApp && (
+              <button
+                className="w-full text-left px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/10"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  await api
+                    .addSmartCollection(clip.sourceApp!, clip.sourceApp!, "source_app")
+                    .catch(() => {});
+                }}
+              >
+                {t("clip.createSmartForApp", { app: clip.sourceApp })}
+              </button>
+            )}
             <button
               className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-500/10 text-red-600 dark:text-red-400"
               onClick={async () => {

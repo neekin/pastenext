@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, onClipsUpdated, onPanelShown } from "../api";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { api, onClipsUpdated, onPanelShown, onSettingsChanged } from "../api";
 import { useI18n } from "../i18n";
-import type { Board, Clip, ClipKind } from "../types";
+import type { Board, Clip, ClipKind, SmartCollection } from "../types";
 import ClipCard from "./ClipCard";
 import DetailDrawer from "./DetailDrawer";
 import LicenseGate from "../license/LicenseGate";
@@ -13,6 +13,10 @@ export default function Panel() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<ClipKind | null>(null);
   const [boardId, setBoardId] = useState<number | null>(null); // null = 历史
+  // 筛选维度:来源应用(精确匹配 source_app 列)与时间范围(仅支持到天,前端折算成 since 毫秒)
+  const [sourceApp, setSourceApp] = useState<string | null>(null);
+  const [range, setRange] = useState<"all" | "today" | "7d" | "30d">("all");
+  const [sourceApps, setSourceApps] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
   const [detail, setDetail] = useState<Clip | null>(null);
   // 编辑浮层的锚点(来源卡片在视口中的位置)与根节点 ref,用于把浮层锚定到卡片列、并做"点外部关闭"命中检测
@@ -31,6 +35,11 @@ export default function Panel() {
   // 运行时设置(纯文本模式/修饰键/音效等)
   const [cfg, setCfg] = useState<Record<string, string>>({});
   const cfgRef = useRef<Record<string, string>>({});
+  // 当前激活的智能集合(与 sourceApp/kind 过滤联动,操作工具栏会退出智能集合态)
+  const [activeSmart, setActiveSmart] = useState<SmartCollection | null>(null);
+  // 粘贴队列:有序的 clip id 列表(Shift/⌘+点击卡片加入/移出)
+  const [queueIds, setQueueIds] = useState<number[]>([]);
+  const [queueError, setQueueError] = useState("");
 
   const { t } = useI18n();
   const license = useLicense();
@@ -51,6 +60,34 @@ export default function Panel() {
       setCfg(s);
       cfgRef.current = s;
     }).catch(() => {});
+  }, []);
+
+  // 智能集合定义存于 settings(随 settings-changed 实时刷新,loadCfg 即刷新)
+  const smartCols: SmartCollection[] = useMemo(() => {
+    try {
+      const list = JSON.parse(cfg.smart_collections || "[]");
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }, [cfg]);
+
+  // 进入智能集合:cross-board 查询(boardId=-1),规则映射到 sourceApp/kind 过滤
+  const clickSmart = useCallback((sc: SmartCollection) => {
+    setActiveSmart(sc);
+    setBoardId(-1); // -1 = 不限看板(含手动看板里的内容)
+    if (sc.type === "source_app") {
+      setSourceApp(sc.value);
+      setKind(null);
+    } else {
+      setKind(sc.value as ClipKind);
+      setSourceApp(null);
+    }
+  }, []);
+
+  // 退出智能集合态:任何手动过滤操作都会调用
+  const leaveSmart = useCallback(() => {
+    setActiveSmart((cur) => (cur ? null : cur));
   }, []);
 
   useEffect(() => {
@@ -107,8 +144,44 @@ export default function Panel() {
     api.pasteClip(id, plain).then(() => requestHide()).catch(() => {});
   }, [playTick, requestHide]);
 
+  // 粘贴队列:Shift/⌘/Ctrl+点击卡片 加入/移出
+  const toggleQueue = useCallback((id: number) => {
+    setQueueIds((ids) => {
+      if (ids.includes(id)) return ids.filter((x) => x !== id);
+      return [...ids, id];
+    });
+  }, []);
+
+  // 开始顺序粘贴:面板先收起,后端立即粘贴第 1 条,之后每按一次全局热键粘贴下一条
+  const startQueue = useCallback(async () => {
+    if (queueIds.length === 0) return;
+    try {
+      await api.hidePanel();
+      await api.queueStart(queueIds);
+      setQueueIds([]);
+      setQueueError("");
+    } catch (e) {
+      setQueueError(String(e));
+      setTimeout(() => setQueueError(""), 4000);
+    }
+  }, [queueIds]);
+
+  // 全选当前筛选结果进入队列(按当前列表顺序)
+  const queueSelectAll = useCallback(() => {
+    setQueueIds(clips.map((c) => c.id));
+  }, [clips]);
+
   const searchRef = useRef<HTMLInputElement>(null);
   const reloadRef = useRef<() => void>(() => {});
+
+  // 时间范围 → since 毫秒时间戳(后端按 created_at >= since 过滤)
+  const since = useMemo(() => {
+    if (range === "all") return null;
+    const d = new Date();
+    if (range === "today") d.setHours(0, 0, 0, 0);
+    else d.setDate(d.getDate() - (range === "7d" ? 7 : 30));
+    return d.getTime();
+  }, [range]);
   // 高度自适应:测量内容自然高度(搜索栏 + 提示条 + 看板栏 + 卡片流),
   // 交给 Rust 把窗口高度调成恰好撑满,避免出现纵向滚动条
   const contentRef = useRef<HTMLDivElement>(null);
@@ -116,13 +189,13 @@ export default function Panel() {
 
   const reload = useCallback(() => {
     api
-      .listClips({ query, kind, boardId })
+      .listClips({ query, kind, boardId, sourceApp, since })
       .then((rows) => {
         setClips(rows);
         setSelected((s) => Math.min(s, Math.max(rows.length - 1, 0)));
       })
       .catch(() => {});
-  }, [query, kind, boardId]);
+  }, [query, kind, boardId, sourceApp, since]);
   reloadRef.current = reload;
 
   // 高度自适应:把内容自然高度交给 Rust 调窗口高度,让内容刚好撑满、不出纵向滚动条。
@@ -140,7 +213,7 @@ export default function Panel() {
   // 内容/提示条/看板变化后重新贴合高度(布局阶段同步测量,先于绘制,不产生视觉跳动)
   useLayoutEffect(() => {
     fitHeight();
-  }, [fitHeight, clips.length, boardId, kind, query, axTrusted, license.phase, addingBoard]);
+  }, [fitHeight, clips.length, boardId, kind, query, axTrusted, license.phase, addingBoard, queueIds.length]);
 
   useEffect(() => {
     reload();
@@ -154,10 +227,13 @@ export default function Panel() {
     };
     checkAx();
     api.getBoards().then(setBoards).catch(() => {});
+    api.getSourceApps().then(setSourceApps).catch(() => {});
   }, []);
 
   useEffect(() => {
     const u1 = onClipsUpdated(() => reloadRef.current());
+    // 智能集合/其它设置变更时刷新 cfg(集合定义即 settings JSON)
+    const u3 = onSettingsChanged(() => loadCfg());
     const u2 = onPanelShown(() => {
       setEntered(false);
       setLeaving(false);
@@ -196,6 +272,7 @@ export default function Panel() {
     return () => {
       u1.then((f) => f());
       u2.then((f) => f());
+      u3.then((f) => f());
     };
   }, []);
 
@@ -261,13 +338,15 @@ export default function Panel() {
     setBoardId(order[(idx + dir + order.length) % order.length]);
   };
 
-  // 两段式 Esc:抽屉打开时先关抽屉;抽屉已关再按才隐藏面板
+  // 两段式 Esc:抽屉打开时先关抽屉;队列非空时先清队列;最后才隐藏面板
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
       if (detail) {
         setDetail(null);
         setDetailAnchor(null);
+      } else if (queueIds.length > 0) {
+        setQueueIds([]);
       } else {
         requestHide();
       }
@@ -286,6 +365,10 @@ export default function Panel() {
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
+    } else if (e.key === "Enter" && queueIds.length > 0) {
+      // 队列非空:回车 = 开始顺序粘贴
+      e.preventDefault();
+      void startQueue();
     } else if (e.key === "Enter" && clips[selected]) {
       e.preventDefault();
       pasteClip(clips[selected].id, plainFor(e));
@@ -311,7 +394,7 @@ export default function Panel() {
             测量它并把结果交给 Rust 设置窗口高度,使内容刚好撑满、无纵向滚动条 */}
         <div ref={contentRef} className="flex flex-col">
         {/* 搜索 + 类型筛选 */}
-        <div className="flex items-center gap-2 px-4 pt-3.5">
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-3.5">
           <input
             ref={searchRef}
             value={query}
@@ -320,11 +403,41 @@ export default function Panel() {
             autoFocus
             className="flex-1 h-9 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-sm outline-none text-neutral-800 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
           />
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
+            <select
+              value={sourceApp ?? ""}
+              onChange={(e) => {
+                leaveSmart();
+                setSourceApp(e.target.value === "" ? null : e.target.value);
+              }}
+              title={t("panel.filter.sourceApp")}
+              className="h-9 px-2 max-w-[120px] rounded-lg bg-black/5 dark:bg-white/10 text-xs outline-none text-neutral-600 dark:text-neutral-300"
+            >
+              <option value="">{t("panel.filter.allSources")}</option>
+              {sourceApps.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <select
+              value={range}
+              onChange={(e) => setRange(e.target.value as typeof range)}
+              title={t("panel.filter.time")}
+              className="h-9 px-2 rounded-lg bg-black/5 dark:bg-white/10 text-xs outline-none text-neutral-600 dark:text-neutral-300"
+            >
+              <option value="all">{t("panel.filter.time.all")}</option>
+              <option value="today">{t("panel.filter.time.today")}</option>
+              <option value="7d">{t("panel.filter.time.7d")}</option>
+              <option value="30d">{t("panel.filter.time.30d")}</option>
+            </select>
             {kinds.map((k) => (
               <button
                 key={k.label}
-                onClick={() => setKind(k.key)}
+                onClick={() => {
+                  leaveSmart();
+                  setKind(k.key);
+                }}
                 className={`px-2.5 h-9 rounded-lg text-xs transition-colors ${
                   kind === k.key
                     ? "bg-indigo-500 text-white"
@@ -369,15 +482,43 @@ export default function Panel() {
           </button>
         )}
 
-        {/* 看板标签页 */}
-        <div className="flex items-center gap-1 px-4 mt-2">
-          <button onClick={() => setBoardId(null)} className={tabCls(boardId === null)}>
+        {/* 看板标签页:历史 | 智能集合(✨) | 手动看板 | + 新建 */}
+        <div className="flex items-center gap-1 px-4 mt-2 flex-wrap">
+          <button
+            onClick={() => {
+              setActiveSmart(null);
+              setBoardId(null);
+            }}
+            className={tabCls(boardId === null && !activeSmart)}
+          >
             {t("panel.board.history")}
           </button>
+          {smartCols.map((sc) => (
+            <button
+              key={sc.id}
+              onClick={() => clickSmart(sc)}
+              onDoubleClick={() => {
+                const name = window.prompt?.(t("panel.board.renamePrompt"), sc.name);
+                if (name && name.trim()) {
+                  api
+                    .renameSmartCollection(sc.id, name.trim())
+                    .then(loadCfg)
+                    .catch(() => {});
+                }
+              }}
+              className={tabCls(activeSmart?.id === sc.id)}
+              title={t("panel.smart.renameTitle")}
+            >
+              ✨ {sc.name}
+            </button>
+          ))}
           {boards.map((b) => (
             <button
               key={b.id}
-              onClick={() => setBoardId(b.id)}
+              onClick={() => {
+                setActiveSmart(null);
+                setBoardId(b.id);
+              }}
               onDoubleClick={() => {
                 const name = window.prompt?.(t("panel.board.renamePrompt"), b.name);
                 if (name && name.trim()) {
@@ -418,6 +559,39 @@ export default function Panel() {
           )}
         </div>
 
+        {/* 粘贴队列操作条:选中非空时出现 */}
+        {queueIds.length > 0 && (
+          <div className="mx-4 mt-2 flex items-center justify-between gap-2 rounded-lg bg-violet-500/10 ring-1 ring-violet-500/30 px-3 py-1.5 text-xs">
+            {queueError ? (
+              <span className="text-red-500 dark:text-red-400 truncate">⚠️ {queueError}</span>
+            ) : (
+              <span className="text-violet-700 dark:text-violet-300 font-medium">
+                {t("panel.queue.count", { n: queueIds.length })}
+              </span>
+            )}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={queueSelectAll}
+                className="px-2 py-0.5 rounded-md hover:bg-violet-500/15 text-violet-700 dark:text-violet-300"
+              >
+                {t("panel.queue.selectAll")}
+              </button>
+              <button
+                onClick={() => setQueueIds([])}
+                className="px-2 py-0.5 rounded-md hover:bg-violet-500/15 text-neutral-500 dark:text-neutral-400"
+              >
+                {t("panel.queue.clear")}
+              </button>
+              <button
+                onClick={() => void startQueue()}
+                className="px-2.5 py-1 rounded-md bg-violet-500 text-white hover:bg-violet-600 font-medium"
+              >
+                {t("panel.queue.start")}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 卡片流:去掉 flex-1 让它保持自然高度(卡片 224 + 上下内边距 24 = 248),
             并显式 overflow-y-hidden —— CSS 规则下 overflow-x-auto 会把另一轴从 visible
             隐式提升为 auto,不显式关掉就会冒出纵向滚动条 */}
@@ -427,19 +601,30 @@ export default function Panel() {
               {t("panel.empty")}
             </div>
           )}
-          {clips.map((c, i) => (
-            <ClipCard
-              key={c.id}
-              clip={c}
-              selected={i === selected}
-              boards={boards}
-              onClick={(e) => pasteClip(c.id, plainFor(e))}
-              onDetail={(rect) => {
-                setDetailAnchor(rect);
-                setDetail(c);
-              }}
-            />
-          ))}
+          {clips.map((c, i) => {
+            const qi = queueIds.indexOf(c.id);
+            return (
+              <ClipCard
+                key={c.id}
+                clip={c}
+                selected={i === selected}
+                queueIndex={qi >= 0 ? qi + 1 : undefined}
+                boards={boards}
+                onClick={(e) => {
+                  // Shift/⌘/Ctrl+点击 = 加入/移出粘贴队列;普通点击 = 粘贴
+                  if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                    toggleQueue(c.id);
+                    return;
+                  }
+                  pasteClip(c.id, plainFor(e));
+                }}
+                onDetail={(rect) => {
+                  setDetailAnchor(rect);
+                  setDetail(c);
+                }}
+              />
+            );
+          })}
         </div>
         </div>
       </div>

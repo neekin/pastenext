@@ -1,4 +1,4 @@
-use crate::model::{Board, Clip, ClipInsert, ClipKind, Tag};
+use crate::model::{Board, Clip, ClipInsert, ClipKind, SmartCollection, Tag};
 use crate::util;
 use rusqlite::params;
 use std::path::Path;
@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS clips (
   created_at INTEGER NOT NULL,
   last_used_at INTEGER NOT NULL,
   use_count INTEGER NOT NULL DEFAULT 0,
-  board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL
+  board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL,
+  sensitive INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_clips_created ON clips(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(hash);
@@ -60,12 +61,17 @@ CREATE TABLE IF NOT EXISTS settings (
 /// 1. 把 SCHEMA_VERSION 加 1
 /// 2. 在 MIGRATIONS 末尾追加一条从旧版本升级到新版本的 SQL
 /// 3. 启动时 run_migrations 会自动按顺序执行,不会丢用户数据
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 /// MIGRATIONS[i] 表示从版本 i+1 升级到版本 i+2 的 SQL。
 /// MIGRATIONS[0] 是基线(0 → 1):当前 SCHEMA 就是版本 1,老库直接升版本号即可。
 /// MIGRATIONS[1] (1 → 2):新增来源 App 图标缓存 key 列(老行留 NULL,由历史回填异步补齐)。
-const MIGRATIONS: &[&str] = &["", "ALTER TABLE clips ADD COLUMN source_app_key TEXT;"];
+/// MIGRATIONS[2] (2 → 3):新增敏感标记列(默认非敏感;敏感内容预览打码,详见 sensitive.rs)。
+const MIGRATIONS: &[&str] = &[
+    "",
+    "ALTER TABLE clips ADD COLUMN source_app_key TEXT;",
+    "ALTER TABLE clips ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0;",
+];
 
 /// 执行数据库迁移。每次打开数据库时调用,确保老用户的数据能平滑升级。
 fn run_migrations(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), String> {
@@ -141,6 +147,8 @@ impl Db {
             ("plain_modifier", "shift"),
             ("sound_enabled", "true"),
             ("excluded_apps", "[]"),
+            ("smart_collections", "[]"),
+            ("sensitive_mode", "mask"),
         ] {
             let conn = self.conn.lock().unwrap();
             let _ = conn.execute(
@@ -204,6 +212,21 @@ impl Db {
         self.set_setting("excluded_apps", &serde_json::to_string(&v).unwrap());
     }
 
+    // ---------- 智能集合(settings JSON,零 schema 依赖) ----------
+
+    pub fn get_smart_collections(&self) -> Vec<SmartCollection> {
+        self.get_setting("smart_collections")
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_smart_collections(&self, list: &[SmartCollection]) {
+        self.set_setting(
+            "smart_collections",
+            &serde_json::to_string(list).unwrap_or_else(|_| "[]".into()),
+        );
+    }
+
     // ---------- clips ----------
 
     /// 库里是否已存在该哈希的记录(图片落盘前查重,避免孤儿文件)
@@ -242,8 +265,8 @@ impl Db {
             .as_ref()
             .map(|v| serde_json::to_string(v).unwrap());
         let _ = conn.execute(
-            "INSERT INTO clips (kind, text, html, image_path, file_paths, byte_size, hash, source_app, source_app_key, created_at, last_used_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+            "INSERT INTO clips (kind, text, html, image_path, file_paths, byte_size, hash, source_app, source_app_key, sensitive, created_at, last_used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
             params![
                 c.kind.as_str(),
                 c.text,
@@ -254,10 +277,20 @@ impl Db {
                 c.hash,
                 c.source_app,
                 c.source_app_key,
+                c.sensitive,
                 now
             ],
         );
         conn.last_insert_rowid()
+    }
+
+    /// 设置/清除单条的敏感标记(前端可在详情里手动切换)
+    pub fn mark_sensitive(&self, id: i64, sensitive: bool) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE clips SET sensitive = ?2 WHERE id = ?1",
+            params![id, sensitive],
+        );
     }
 
     pub fn enforce_max(&self, max: i64) {
@@ -293,6 +326,8 @@ impl Db {
         kind: Option<ClipKind>,
         board_id: Option<i64>,
         tag: Option<&str>,
+        source_app: Option<&str>,
+        since: Option<i64>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Clip>, String> {
@@ -308,6 +343,14 @@ impl Db {
         }
 
         let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(app) = source_app.map(str::trim).filter(|s| !s.is_empty()) {
+            sql.push_str(" AND c.source_app = ? COLLATE NOCASE");
+            binds.push(Box::new(app.to_string()));
+        }
+        if let Some(s) = since {
+            sql.push_str(" AND c.created_at >= ?");
+            binds.push(Box::new(s));
+        }
         if let Some(q) = query.map(str::trim).filter(|q| !q.is_empty()) {
             let esc = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
             let like = format!("%{esc}%");
@@ -374,6 +417,12 @@ impl Db {
             last_used_at: row.get("last_used_at")?,
             use_count: row.get("use_count")?,
             board_id: row.get("board_id")?,
+            sensitive: row
+                .get::<_, Option<i64>>("sensitive")
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                != 0,
             tags: Vec::new(),
         })
     }

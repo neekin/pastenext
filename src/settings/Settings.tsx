@@ -2,8 +2,24 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, checkUpdate, type UpdateInfo } from "../api";
+import type { SmartCollection } from "../types";
+// 敏感防护一键包:这些应用中复制的内容完全不入库(与排除应用规则同一匹配逻辑)
+const PASSWORD_MANAGER_PACK = [
+  "1Password",
+  "Bitwarden",
+  "KeePassXC",
+  "KeePass",
+  "钥匙串访问",
+  "Keychain Access",
+  "Passwords",
+  "Dashlane",
+  "Enpass",
+  "Proton Pass",
+  "LastPass",
+  "Keeper Password Manager",
+];
 import { applyTheme } from "../theme";
-import { useI18n, type Locale } from "../i18n";
+import { useI18n, type Locale, type I18nKey } from "../i18n";
 import LicenseGate from "../license/LicenseGate";
 import { useLicense } from "../license/useLicense";
 
@@ -256,6 +272,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [apps, setApps] = useState<string[]>([]);
   const [sourceApps, setSourceApps] = useState<string[]>([]);
+  const [smartCols, setSmartCols] = useState<SmartCollection[]>([]);
   const [newApp, setNewApp] = useState("");
   const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
   const [autostart, setAutostart] = useState(false);
@@ -303,6 +320,7 @@ export default function Settings() {
       .catch(() => {});
     api.getExcludedApps().then(setApps).catch(() => {});
     api.getSourceApps().then(setSourceApps).catch(() => {});
+    api.getSmartCollections().then(setSmartCols).catch(() => {});
     api.getAutostart().then(setAutostart).catch(() => {});
     getCurrentWindow().setTitle(`${t("app.name")} ${t("app.settings")}`).catch(() => {});
   }, [setLocale, t]);
@@ -679,6 +697,86 @@ export default function Settings() {
                 ))}
             </div>
           )}
+        </Section>
+
+        <Section title={t("settings.smart.title")}>
+          <p className="text-xs text-neutral-400">{t("settings.smart.desc")}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {smartCols.length === 0 && (
+              <span className="text-xs text-neutral-400">{t("settings.smart.empty")}</span>
+            )}
+            {smartCols.map((sc) => (
+              <span
+                key={sc.id}
+                className="px-2 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/15 text-xs flex items-center gap-1 text-indigo-600 dark:text-indigo-300"
+              >
+                ✨ {sc.name}
+                <span className="text-[10px] text-neutral-400">
+                  {sc.type === "source_app" ? sc.value : t(`panel.kind.${sc.value}` as I18nKey)}
+                </span>
+                <button
+                  onClick={async () => {
+                    await api.removeSmartCollection(sc.id).catch(() => {});
+                    setSmartCols(await api.getSmartCollections());
+                  }}
+                  className="text-neutral-400 hover:text-red-500"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          {sourceApps.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <span className="text-xs text-neutral-400">{t("settings.smart.recent")}</span>
+              {sourceApps
+                .filter((a) => !smartCols.some((c) => c.type === "source_app" && c.value.toLowerCase() === a.toLowerCase()))
+                .slice(0, 8)
+                .map((a) => (
+                  <button
+                    key={a}
+                    onClick={async () => {
+                      await api.addSmartCollection(a, "source_app", a).catch(() => {});
+                      setSmartCols(await api.getSmartCollections());
+                    }}
+                    className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-700 text-[11px] text-neutral-500 dark:text-neutral-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"
+                  >
+                    ✨ {a}
+                  </button>
+                ))}
+            </div>
+          )}
+        </Section>
+
+        <Section title={t("settings.sensitive.title")}>
+          <p className="text-xs text-neutral-400">{t("settings.sensitive.desc")}</p>
+          <div className={row}>
+            <span className={lbl}>{t("settings.sensitive.mode")}</span>
+            <select
+              value={settings.sensitive_mode ?? "mask"}
+              onChange={(e) => save("sensitive_mode", e.target.value)}
+              className={inputCls}
+            >
+              <option value="mask">{t("settings.sensitive.mode.mask")}</option>
+              <option value="skip">{t("settings.sensitive.mode.skip")}</option>
+              <option value="off">{t("settings.sensitive.mode.off")}</option>
+            </select>
+          </div>
+          <div className={row}>
+            <span className={lbl}>{t("settings.sensitive.pmPack")}</span>
+            <button
+              onClick={async () => {
+                for (const pm of PASSWORD_MANAGER_PACK) {
+                  await api.addExcludedApp(pm).catch(() => {});
+                }
+                setApps(await api.getExcludedApps());
+              }}
+              className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600 shrink-0"
+            >
+              {t("settings.sensitive.pmPackEnable")}
+            </button>
+          </div>
+          <p className="text-xs text-neutral-400">{t("settings.sensitive.pmPackHint")}</p>
         </Section>
 
         <Section title={t("settings.history")}>

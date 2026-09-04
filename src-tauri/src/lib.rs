@@ -8,6 +8,7 @@ mod model;
 mod monitor;
 mod ocr;
 mod platform;
+mod sensitive;
 mod tray;
 mod util;
 
@@ -276,7 +277,11 @@ pub fn run() {
                             })
                             .unwrap_or(false);
                         if is_current {
-                            toggle_panel(app);
+                            // 粘贴队列激活时,热键 = 粘贴下一条(不弹面板);
+                            // 队列耗尽自动结束,之后的熱键恢复唤起面板
+                            if !commands::queue_try_advance_on_hotkey(app) {
+                                toggle_panel(app);
+                            }
                             return;
                         }
                     }
@@ -341,6 +346,7 @@ pub fn run() {
             app.manage(HotkeyState(Mutex::new(registered)));
             app.manage(PreviousApp(Mutex::new(None)));
             app.manage(PanelIntent(Mutex::new(false)));
+            app.manage(commands::PasteQueueState(Mutex::new(None)));
             app.manage(PanelGeometry(Mutex::new(None)));
 
             let tray_icon = tray::create(app.handle())?;
@@ -418,6 +424,11 @@ pub fn run() {
             commands::clear_history,
             commands::edit_clip,
             commands::set_note,
+            commands::set_clip_sensitive,
+            commands::queue_start,
+            commands::queue_next,
+            commands::queue_cancel,
+            commands::queue_status,
             commands::move_clip_to_board,
             commands::get_settings,
             commands::set_setting,
@@ -434,6 +445,10 @@ pub fn run() {
             commands::get_excluded_apps,
             commands::add_excluded_app,
             commands::remove_excluded_app,
+            commands::get_smart_collections,
+            commands::add_smart_collection,
+            commands::remove_smart_collection,
+            commands::rename_smart_collection,
             commands::get_source_apps,
             commands::get_app_icon_base64,
             commands::backfill_source_app_keys,
