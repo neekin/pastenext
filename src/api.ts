@@ -65,6 +65,11 @@ export const api = {
   setNote: (id: number, note: string) => invoke<void>("set_note", { id, note }),
   setClipSensitive: (id: number, sensitive: boolean) =>
     invoke<void>("set_clip_sensitive", { id, sensitive }),
+  setRevealPassword: (old: string | null, newPw: string | null) =>
+    invoke<boolean>("set_reveal_password", { old, new: newPw }),
+  verifyRevealPassword: (password: string) =>
+    invoke<boolean>("verify_reveal_password", { password }),
+  getRevealLock: () => invoke<boolean>("get_reveal_lock"),
   queueStart: (ids: number[]) => invoke<QueueStatus>("queue_start", { ids }),
   queueNext: () => invoke<QueueStatus>("queue_next"),
   queueCancel: () => invoke<QueueStatus>("queue_cancel"),

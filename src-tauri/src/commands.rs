@@ -237,6 +237,96 @@ pub fn set_clip_sensitive(
     Ok(())
 }
 
+// ---------- 揭示密码锁 ----------
+
+/// 生成随机盐:优先 /dev/urandom(unix);Windows 回退到时间+进程号哈希。
+/// 盐的用途是抗彩虹表,本地威慑场景下两条路径都足够。
+fn generate_salt() -> String {
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            let mut buf = [0u8; 16];
+            if f.read_exact(&mut buf).is_ok() {
+                return buf.iter().map(|b| format!("{b:02x}")).collect();
+            }
+        }
+    }
+    use sha2::{Digest, Sha256};
+    let seed = format!(
+        "{}|{}|pastenext-reveal-salt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id()
+    );
+    let h = Sha256::digest(seed.as_bytes());
+    h.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn hash_with_salt(salt: &str, password: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(format!("{salt}:{password}").as_bytes());
+    h.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// 设置/关闭揭示密码。开启或修改时 old 须与现有密码匹配(首次开启 old 传 null);
+/// 关闭时 old 必填且必须匹配,防止旁人直接关锁。
+/// 返回 false 表示旧密码错误。
+#[tauri::command]
+pub fn set_reveal_password(
+    db: State<Db>,
+    old: Option<String>,
+    new: Option<String>,
+) -> Result<bool, String> {
+    let had_lock = db.get_setting("reveal_lock").unwrap_or_else(|| "off".into()) == "on";
+    if had_lock {
+        // 已有锁:必须验证旧密码才能改/关
+        let salt = db.get_setting("reveal_salt").unwrap_or_default();
+        let expect = db.get_setting("reveal_hash").unwrap_or_default();
+        let old_pw = old.clone().unwrap_or_default();
+        if hash_with_salt(&salt, &old_pw) != expect {
+            return Ok(false);
+        }
+    }
+    match new {
+        Some(pw) if !pw.is_empty() => {
+            if pw.len() < 4 {
+                return Err("密码至少 4 位".into());
+            }
+            let salt = generate_salt();
+            db.set_setting("reveal_salt", &salt);
+            db.set_setting("reveal_hash", &hash_with_salt(&salt, &pw));
+            db.set_setting("reveal_lock", "on");
+        }
+        _ => {
+            // 关闭锁
+            db.set_setting("reveal_lock", "off");
+            db.set_setting("reveal_hash", "");
+        }
+    }
+    Ok(true)
+}
+
+/// 校验揭示密码。锁未开启或哈希缺失(异常态)时放行,避免把用户锁死。
+#[tauri::command]
+pub fn verify_reveal_password(db: State<Db>, password: String) -> bool {
+    if db.get_setting("reveal_lock").unwrap_or_else(|| "off".into()) != "on" {
+        return true;
+    }
+    let (Some(salt), Some(expect)) = (db.get_setting("reveal_salt"), db.get_setting("reveal_hash"))
+    else {
+        return true;
+    };
+    hash_with_salt(&salt, &password) == expect
+}
+
+#[tauri::command]
+pub fn get_reveal_lock(db: State<Db>) -> bool {
+    db.get_setting("reveal_lock").unwrap_or_else(|| "off".into()) == "on"
+}
+
 #[tauri::command]
 pub fn copy_clip(app: AppHandle, db: State<Db>, id: i64) -> Result<(), String> {
     let clip = db.get_clip(id).ok_or("条目不存在")?;

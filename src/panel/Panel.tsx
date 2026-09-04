@@ -40,6 +40,9 @@ export default function Panel() {
   // 粘贴队列:有序的 clip id 列表(Shift/⌘+点击卡片加入/移出)
   const [queueIds, setQueueIds] = useState<number[]>([]);
   const [queueError, setQueueError] = useState("");
+  // 揭示密码锁:本会话内验证一次后不再询问(应用重启后需重新验证)
+  const [revealUnlocked, setRevealUnlocked] = useState(false);
+  const revealLockOn = cfg.reveal_lock === "on";
 
   const { t } = useI18n();
   const license = useLicense();
@@ -635,6 +638,9 @@ export default function Panel() {
           boards={boards}
           anchor={detailAnchor}
           rootRef={detailRootRef}
+          revealLock={revealLockOn}
+          unlocked={revealUnlocked}
+          onUnlocked={() => setRevealUnlocked(true)}
           onClose={() => {
             setDetail(null);
             setDetailAnchor(null);

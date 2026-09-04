@@ -273,6 +273,21 @@ export default function Settings() {
   const [apps, setApps] = useState<string[]>([]);
   const [sourceApps, setSourceApps] = useState<string[]>([]);
   const [smartCols, setSmartCols] = useState<SmartCollection[]>([]);
+  // 揭示密码锁 UI 状态
+  const [revealLock, setRevealLock] = useState(false);
+  const [revealFlow, setRevealFlow] = useState<"none" | "set" | "disable">("none");
+  const [revealPw, setRevealPw] = useState("");
+  const [revealPw2, setRevealPw2] = useState("");
+  const [revealOld, setRevealOld] = useState("");
+  const [revealErr, setRevealErr] = useState("");
+
+  const resetRevealFlow = () => {
+    setRevealFlow("none");
+    setRevealPw("");
+    setRevealPw2("");
+    setRevealOld("");
+    setRevealErr("");
+  };
   const [newApp, setNewApp] = useState("");
   const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
   const [autostart, setAutostart] = useState(false);
@@ -321,6 +336,7 @@ export default function Settings() {
     api.getExcludedApps().then(setApps).catch(() => {});
     api.getSourceApps().then(setSourceApps).catch(() => {});
     api.getSmartCollections().then(setSmartCols).catch(() => {});
+    api.getRevealLock().then(setRevealLock).catch(() => {});
     api.getAutostart().then(setAutostart).catch(() => {});
     getCurrentWindow().setTitle(`${t("app.name")} ${t("app.settings")}`).catch(() => {});
   }, [setLocale, t]);
@@ -777,6 +793,99 @@ export default function Settings() {
             </button>
           </div>
           <p className="text-xs text-neutral-400">{t("settings.sensitive.pmPackHint")}</p>
+
+          <div className={row}>
+            <span className={lbl}>{t("settings.revealLock.title")}</span>
+            <input
+              type="checkbox"
+              checked={revealLock}
+              onChange={() => {
+                setRevealErr("");
+                setRevealFlow(revealLock ? "disable" : "set");
+              }}
+              className="w-4 h-4 accent-indigo-500"
+            />
+          </div>
+          {revealFlow === "set" && (
+            <div className="space-y-2 rounded-xl bg-black/5 dark:bg-white/5 p-3">
+              <input
+                type="password"
+                value={revealPw}
+                onChange={(e) => setRevealPw(e.target.value)}
+                placeholder={t("settings.revealLock.newPw")}
+                className={inputCls + " w-full"}
+              />
+              <input
+                type="password"
+                value={revealPw2}
+                onChange={(e) => setRevealPw2(e.target.value)}
+                placeholder={t("settings.revealLock.confirmPw")}
+                className={inputCls + " w-full"}
+              />
+              {revealErr && <p className="text-xs text-red-500">{revealErr}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    if (revealPw !== revealPw2) {
+                      setRevealErr(t("settings.revealLock.mismatch"));
+                      return;
+                    }
+                    const ok = await api.setRevealPassword(null, revealPw).catch(() => false);
+                    if (ok === false) {
+                      setRevealErr(t("settings.revealLock.wrongOld"));
+                      return;
+                    }
+                    setRevealLock(true);
+                    resetRevealFlow();
+                  }}
+                  className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
+                >
+                  {t("settings.revealLock.save")}
+                </button>
+                <button
+                  onClick={resetRevealFlow}
+                  className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-xs"
+                >
+                  {t("settings.revealLock.cancel")}
+                </button>
+              </div>
+            </div>
+          )}
+          {revealFlow === "disable" && (
+            <div className="space-y-2 rounded-xl bg-black/5 dark:bg-white/5 p-3">
+              <input
+                type="password"
+                value={revealOld}
+                onChange={(e) => setRevealOld(e.target.value)}
+                placeholder={t("settings.revealLock.currentPw")}
+                className={inputCls + " w-full"}
+              />
+              {revealErr && <p className="text-xs text-red-500">{revealErr}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    const ok = await api.setRevealPassword(revealOld, null).catch(() => false);
+                    if (ok === false) {
+                      setRevealErr(t("settings.revealLock.wrongOld"));
+                      return;
+                    }
+                    setRevealLock(false);
+                    resetRevealFlow();
+                  }}
+                  className="h-8 px-3 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600"
+                >
+                  {t("settings.revealLock.disable")}
+                </button>
+                <button
+                  onClick={resetRevealFlow}
+                  className="h-8 px-3 rounded-lg bg-black/5 dark:bg-white/10 text-xs"
+                >
+                  {t("settings.revealLock.cancel")}
+                </button>
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-neutral-400">{t("settings.revealLock.hint")}</p>
         </Section>
 
         <Section title={t("settings.history")}>

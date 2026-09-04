@@ -13,9 +13,23 @@ interface Props {
   anchor: DOMRect | null;
   /** 浮层根节点 ref,供 Panel 做"点击外部关闭"命中检测 */
   rootRef?: RefObject<HTMLDivElement>;
+  /** 揭示密码锁是否开启(Panel 从设置读入) */
+  revealLock?: boolean;
+  /** 本会话已通过密码验证(验证一次后,后续揭示不再询问) */
+  unlocked?: boolean;
+  onUnlocked?: () => void;
 }
 
-export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }: Props) {
+export default function DetailDrawer({
+  clip,
+  boards,
+  onClose,
+  anchor,
+  rootRef,
+  revealLock,
+  unlocked,
+  onUnlocked,
+}: Props) {
   const { t } = useI18n();
   const [cur, setCur] = useState<Clip>(clip);
   const [text, setText] = useState(clip.text ?? "");
@@ -26,6 +40,25 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   // 敏感内容揭示:仅在当前抽屉会话内有效,关闭后重新打码
   const [revealed, setRevealed] = useState(false);
+  // 揭示密码锁:内联密码输入与校验状态
+  const [pwInput, setPwInput] = useState("");
+  const [pwErr, setPwErr] = useState("");
+  const needPw = !!revealLock && !unlocked;
+
+  const tryReveal = async () => {
+    const ok = await api.verifyRevealPassword(pwInput).catch(() => false);
+    if (ok) {
+      setPwInput("");
+      setPwErr("");
+      setRevealed(true);
+      onUnlocked?.();
+    } else {
+      setPwErr(t("detail.sensitive.wrongPw"));
+    }
+  };
+
+  /** 需要密码时,「显示」按钮点击先展开密码输入 */
+  const [askingPw, setAskingPw] = useState(false);
 
   // 来源 App 图标:随 cur.sourceAppKey 变化重新取(模块级缓存)
   useEffect(() => {
@@ -115,7 +148,7 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
         {/* 敏感内容守卫:未揭示时遮住内容/预览/OCR 区,笔记/标签/看板不受影响 */}
         {cur.sensitive && (
           <div
-            className={`rounded-xl px-3 py-2.5 text-xs flex items-center justify-between gap-2 ${
+            className={`rounded-xl px-3 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2 ${
               revealed
                 ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300"
                 : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
@@ -124,12 +157,41 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
             <span>🔒 {revealed ? t("detail.sensitive.revealed") : t("detail.sensitive.masked")}</span>
             <div className="flex items-center gap-2 shrink-0">
               {!revealed ? (
-                <button
-                  onClick={() => setRevealed(true)}
-                  className="px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
-                >
-                  {t("detail.sensitive.reveal")}
-                </button>
+                needPw ? (
+                  askingPw ? (
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="password"
+                        value={pwInput}
+                        onChange={(e) => setPwInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void tryReveal()}
+                        placeholder={t("detail.sensitive.pwPlaceholder")}
+                        autoFocus
+                        className="w-28 h-6 px-1.5 rounded-md bg-black/5 dark:bg-white/10 text-xs outline-none"
+                      />
+                      <button
+                        onClick={() => void tryReveal()}
+                        className="px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
+                      >
+                        {t("detail.sensitive.verify")}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setAskingPw(true)}
+                      className="px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
+                    >
+                      🔒 {t("detail.sensitive.reveal")}
+                    </button>
+                  )
+                ) : (
+                  <button
+                    onClick={() => setRevealed(true)}
+                    className="px-2 py-0.5 rounded-md bg-indigo-500 text-white hover:bg-indigo-600"
+                  >
+                    {t("detail.sensitive.reveal")}
+                  </button>
+                )
               ) : (
                 <button
                   onClick={() => setRevealed(false)}
@@ -138,18 +200,21 @@ export default function DetailDrawer({ clip, boards, onClose, anchor, rootRef }:
                   {t("detail.sensitive.remask")}
                 </button>
               )}
-              <button
-                onClick={async () => {
-                  await api.setClipSensitive(cur.id, !cur.sensitive).catch(() => {});
-                  setRevealed(!cur.sensitive);
-                  refresh();
-                }}
-                className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                title={t("detail.sensitive.toggleTitle")}
-              >
-                {cur.sensitive ? t("detail.sensitive.unmark") : t("detail.sensitive.mark")}
-              </button>
+              {(unlocked || !needPw || revealed) && (
+                <button
+                  onClick={async () => {
+                    await api.setClipSensitive(cur.id, !cur.sensitive).catch(() => {});
+                    setRevealed(!cur.sensitive);
+                    refresh();
+                  }}
+                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                  title={t("detail.sensitive.toggleTitle")}
+                >
+                  {cur.sensitive ? t("detail.sensitive.unmark") : t("detail.sensitive.mark")}
+                </button>
+              )}
             </div>
+            {pwErr && !revealed && <p className="w-full text-right text-red-500">{pwErr}</p>}
           </div>
         )}
         {editable && (
