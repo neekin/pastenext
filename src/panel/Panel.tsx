@@ -199,10 +199,12 @@ export default function Panel() {
     };
   }, []);
 
-  // 面板失焦自动隐藏(详情抽屉打开时保留)。
-  // 只有真正获得过焦点的窗口才响应 blur,避免显示瞬间的伪 blur 事件立即隐藏面板
+  // 面板失焦自动隐藏:点击面板之外(桌面/其它应用)时窗口收不到任何点击事件,
+  // blur 是唯一的退场信号。守卫初值取 document.hasFocus():监听器挂载时窗口
+  // 可能已持有焦点(不会再来 focus 事件),若初值恒为 false,之后的 blur 会被
+  // 静默吞掉 —— 面板僵住不退场。监听器只挂一次,不随抽屉开合重建。
   useEffect(() => {
-    let hadFocus = false;
+    let hadFocus = document.hasFocus();
     const onFocus = () => {
       hadFocus = true;
     };
@@ -220,7 +222,7 @@ export default function Panel() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [detail]);
+  }, [requestHide]);
 
   // 统一的「点空白隐藏面板」语义(窗口级 capture 监听,先于一切子元素事件):
   // - 点击可交互元素(按钮/输入框/卡片/链接等):元素自身逻辑,面板保留
