@@ -10,6 +10,11 @@ on:
 
 jobs:
   build:
+    # secrets 不能在步骤的 if: 里直接引用(GitHub 解析期报 Unrecognized named-value,
+    # 整个工作流 0 秒失败),必须经 job 级 env 转交后在条件里用 env 上下文判断
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +80,7 @@ jobs:
       #   4) 仓库 Settings → Secrets 增加 SIGNPATH_API_TOKEN 与 SIGNPATH_ORGANIZATION_ID。
 
       - name: Stage unsigned Windows artifacts
-        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         shell: pwsh
         run: |
           $target = "${{ matrix.target }}"
@@ -100,14 +105,14 @@ jobs:
 
       - name: Upload unsigned artifact
         id: upload-unsigned
-        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-windows-${{ matrix.target }}
           path: sign-input/**
 
       - name: Submit signing request to SignPath
-        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -120,7 +125,7 @@ jobs:
           wait-for-completion: true
 
       - name: Assemble signed Windows artifacts
-        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN != ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         shell: pwsh
         run: |
           # 把 SignPath 返回的已签名文件落到仓库根目录,供下方 Upload 步骤收集
@@ -135,7 +140,7 @@ jobs:
 
       # ---- 未签名回退分支(未配置 SignPath Secrets 时)----
       - name: Assemble unsigned Windows artifacts (fallback)
-        if: runner.os == 'Windows' && secrets.SIGNPATH_API_TOKEN == ''
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN == ''
         shell: pwsh
         run: |
           $target = "${{ matrix.target }}"
