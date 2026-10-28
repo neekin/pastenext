@@ -52,7 +52,9 @@ pnpm app            # 构建 .app 并直接替换 /Applications 里的 PasteNext
 pnpm tauri build    # 完整构建(含 DMG/MSI 安装包,用于分发)
 ```
 
-> macOS 日常迭代用 `pnpm app`:只构建 .app(跳过 DMG)、自动替换 /Applications 里的版本并重启,无需手动拖 DMG。注意二进制变化后辅助功能授权需要重新授予一次。
+> macOS 日常迭代用 `pnpm app`:只构建 .app(跳过 DMG)、使用固定本地证书签名、验证后替换 /Applications 里的版本并重启。安装已下载的正式客户端可执行 `pnpm app "/path/to/PasteNext.app"`,不会重新编译许可密钥。首次切换固定签名需重新授予辅助功能权限,后续更新复用同一证书和应用标识以保持授权身份。
+>
+> 证书和私钥保存在 `~/.local/share/pastenext/signing` 的独立钥匙串中。请安全备份整个目录,不要删除、重新生成或提交到仓库;签名密码文件仅当前用户可读。此方案用于本机安装,不提供 Apple Developer ID 或公证。直接用其他安装方式覆盖应用会失去此固定签名,应继续使用上述安装命令。
 
 产物位置:
 

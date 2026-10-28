@@ -43,7 +43,9 @@ pnpm app            # build .app and replace the one in /Applications (daily tes
 pnpm tauri build    # full build (DMG/MSI installers) for distribution
 ```
 
-> On macOS use `pnpm app` for iteration: it builds the `.app` only (skipping the DMG), replaces the copy in `/Applications` and relaunches. Note that the Accessibility grant must be renewed whenever the binary changes.
+> On macOS use `pnpm app` for iteration: it builds the `.app` only, signs with a persistent local certificate, verifies it, replaces the copy in `/Applications` and relaunches. Use `pnpm app "/path/to/PasteNext.app"` to install an existing official build without recompiling its license keys. Switching to this identity requires granting Accessibility once again; subsequent updates reuse the certificate and app identifier to preserve code identity.
+>
+> Securely back up the entire `~/.local/share/pastenext/signing` directory, which holds a dedicated keychain and an owner-only password file. Do not delete, regenerate, or commit these credentials. This is local signing, not Apple Developer ID signing or notarization. Continue using this installer: replacing the app through another installation method also replaces its signature.
 
 Output locations:
 

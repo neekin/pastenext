@@ -1,33 +1,22 @@
 #!/usr/bin/env bash
-# 一键更新本地安装的 PasteNext:
-#   1. 只构建 .app bundle(--bundles app,跳过 DMG,更快也不受应用运行影响)
-#   2. 退出正在运行的实例
-#   3. 直接替换 /Applications/PasteNext.app(不需要打开 DMG 拖拽)
-#   4. 重新启动
-#
-# 用法:pnpm app
+# pnpm app                     构建并安装本地客户端
+# pnpm app /path/PasteNext.app  安装已有正式构建(不重新编译许可密钥)
+# 固定本地签名保存在 ~/.local/share/pastenext/signing，勿删除或提交到仓库。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-
-APP_SRC="src-tauri/target/release/bundle/macos/PasteNext.app"
-APP_DST="/Applications/PasteNext.app"
-
-echo "==> 构建 .app(跳过 DMG)"
-pnpm tauri build --bundles app >/dev/null
-
-echo "==> 退出运行中的 PasteNext"
-osascript -e 'tell application "PasteNext" to quit' >/dev/null 2>&1 || true
-pkill -f "MacOS/paste-next" 2>/dev/null || true
-sleep 1
-
-echo "==> 替换 $APP_DST"
-rm -rf "$APP_DST"
-ditto "$APP_SRC" "$APP_DST"
-
-echo "==> 重新启动"
-open "$APP_DST"
-
-echo ""
-echo "✅ 已更新并重启 /Applications/PasteNext.app"
-echo "⚠️  二进制变了,自动粘贴的辅助功能授权需要重新授予一次:"
-echo "    按 ⌘+Shift+V 唤起面板,系统授权弹窗会自动出现"
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "此安装脚本仅支持 macOS" >&2
+  exit 1
+fi
+if [[ $# -gt 1 ]]; then
+  echo "用法: pnpm app [已有 .app 路径]" >&2
+  exit 1
+fi
+if [[ $# -eq 0 ]]; then
+  echo "==> 构建本地 .app"
+  pnpm tauri build --bundles app
+  APP_SRC="${CARGO_TARGET_DIR:-src-tauri/target}/release/bundle/macos/PasteNext.app"
+else
+  APP_SRC="$1"
+fi
+python3 scripts/install-macos-local.py "$APP_SRC"
