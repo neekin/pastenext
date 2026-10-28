@@ -171,3 +171,7 @@ export function onSettingsChanged(cb: (key: string, value: string) => void) {
     cb(e.payload.key, e.payload.value)
   );
 }
+
+export function onPasteFailed(cb: (message: string) => void) {
+  return listen<string>("paste-failed", (event) => cb(event.payload));
+}

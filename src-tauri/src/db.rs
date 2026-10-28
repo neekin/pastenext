@@ -63,6 +63,38 @@ CREATE TABLE IF NOT EXISTS settings (
 /// 3. 启动时 run_migrations 会自动按顺序执行,不会丢用户数据
 const SCHEMA_VERSION: u32 = 3;
 
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn fresh_database_starts_with_latest_schema() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        db.ensure_defaults();
+        assert_eq!(db.get_setting("auto_paste").as_deref(), Some("true"));
+        let conn = db.conn.lock().unwrap();
+        let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        conn.prepare("SELECT source_app_key, sensitive FROM clips").unwrap();
+        run_migrations(&conn, Path::new(":memory:")).unwrap();
+    }
+
+    #[test]
+    fn legacy_database_migrates_without_losing_history() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let legacy = SCHEMA.replace("  source_app_key TEXT,\n", "")
+            .replace(",\n  sensitive INTEGER NOT NULL DEFAULT 0", "");
+        conn.execute_batch(&legacy).unwrap();
+        conn.execute("INSERT INTO clips(kind,text,hash,created_at,last_used_at) VALUES ('text','keep me','test',1,0)", []).unwrap();
+        run_migrations(&conn, Path::new(":memory:")).unwrap();
+        let row: (String, Option<String>, bool) = conn.query_row(
+            "SELECT text,source_app_key,sensitive FROM clips", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+        ).unwrap();
+        assert_eq!(row, ("keep me".into(), None, false));
+    }
+}
+
 /// MIGRATIONS[i] 表示从版本 i+1 升级到版本 i+2 的 SQL。
 /// MIGRATIONS[0] 是基线(0 → 1):当前 SCHEMA 就是版本 1,老库直接升版本号即可。
 /// MIGRATIONS[1] (1 → 2):新增来源 App 图标缓存 key 列(老行留 NULL,由历史回填异步补齐)。
@@ -123,7 +155,16 @@ impl Db {
         let conn = rusqlite::Connection::open(path).map_err(|e| e.to_string())?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", true).ok();
+        let has_clips: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='clips')",
+            [], |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
         conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        // A new database already has the latest columns; only existing databases
+        // need the historical ALTER TABLE migrations.
+        if !has_clips {
+            conn.pragma_update(None, "user_version", SCHEMA_VERSION).map_err(|e| e.to_string())?;
+        }
         run_migrations(&conn, path).map_err(|e| e.to_string())?;
         Ok(Self { conn: Mutex::new(conn) })
     }

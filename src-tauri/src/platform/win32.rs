@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
-    VK_CONTROL,
+    VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, GetAsyncKeyState,
 };
 use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
 use windows::Win32::Graphics::Gdi::{
@@ -608,7 +608,11 @@ fn key_input(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     }
 }
 
-pub fn send_paste() {
+pub fn paste_modifiers_released() -> bool {
+    [VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN].iter().all(|key| unsafe { GetAsyncKeyState(key.0 as i32) >= 0 })
+}
+
+pub fn send_paste() -> Result<(), String> {
     unsafe {
         let mut inputs = [
             key_input(VK_CONTROL, false),
@@ -616,8 +620,13 @@ pub fn send_paste() {
             key_input(VIRTUAL_KEY(VK_V), true),
             key_input(VK_CONTROL, true),
         ];
-        let _ = SendInput(&mut inputs, std::mem::size_of::<INPUT>() as i32);
+        if SendInput(&mut inputs, std::mem::size_of::<INPUT>() as i32) != inputs.len() as u32 {
+            let cleanup = [key_input(VIRTUAL_KEY(VK_V), true), key_input(VK_CONTROL, true)];
+            let _ = SendInput(&cleanup, std::mem::size_of::<INPUT>() as i32);
+            return Err("系统拒绝发送粘贴按键，请检查目标应用权限".into());
+        }
     }
+    Ok(())
 }
 
 pub fn is_accessibility_trusted() -> bool {

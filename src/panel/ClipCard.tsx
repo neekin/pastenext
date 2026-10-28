@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
 import DOMPurify from "dompurify";
 import { api, getAppIconCached } from "../api";
 import ClipImage from "./ClipImage";
@@ -58,15 +58,18 @@ function sizeLabel(clip: Clip, t: (key: "clip.size.chars", vars?: Record<string,
 interface Props {
   clip: Clip;
   selected: boolean;
+  pasting: boolean;
+  focusSelection: boolean;
   /** 在粘贴队列中的序号(1 起);undefined = 不在队列中 */
   queueIndex?: number;
   boards: Board[];
+  onDoubleClick: (id: number, e: MouseEvent) => void;
   onClick: (id: number, e: MouseEvent) => void;
   /** 触发编辑时,把卡片在视口中的位置回传,供编辑浮层锚定到卡片所在列 */
   onDetail: (clip: Clip, rect: DOMRect) => void;
 }
 
-export default memo(function ClipCard({ clip, selected, queueIndex, boards, onClick, onDetail }: Props) {
+export default memo(function ClipCard({ clip, selected, pasting, focusSelection, queueIndex, boards, onClick, onDoubleClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -94,6 +97,10 @@ export default memo(function ClipCard({ clip, selected, queueIndex, boards, onCl
       alive = false;
     };
   }, [clip.sourceAppKey]);
+
+  useLayoutEffect(() => {
+    if (selected && focusSelection) ref.current?.focus({ preventScroll: true });
+  }, [selected, focusSelection]);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.effectAllowed = "copy";
@@ -207,10 +214,22 @@ export default memo(function ClipCard({ clip, selected, queueIndex, boards, onCl
     <div
       ref={ref}
       data-clip-card
+      data-clip-id={clip.id}
+      role="option"
+      aria-selected={selected}
+      aria-busy={pasting}
+      tabIndex={selected ? 0 : -1}
       draggable
-      onClick={(e) => onClick(clip.id, e)}
+      onClick={(e) => {
+        e.currentTarget.focus({ preventScroll: true });
+        onClick(clip.id, e);
+      }}
+      onDoubleClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, input, textarea, select, a")) return;
+        onDoubleClick(clip.id, e);
+      }}
       onDragStart={handleDragStart}
-      className={`group relative shrink-0 w-[188px] h-[224px] rounded-xl flex flex-col cursor-grab active:cursor-grabbing transition-all ring-1 overflow-hidden ${
+      className={`group relative shrink-0 w-[188px] h-[224px] rounded-xl flex flex-col cursor-grab active:cursor-grabbing transition-shadow ring-1 overflow-hidden ${
         queueIndex !== undefined
           ? "ring-2 ring-violet-500 shadow-lg"
           : selected
@@ -218,6 +237,7 @@ export default memo(function ClipCard({ clip, selected, queueIndex, boards, onCl
             : "ring-black/10 dark:ring-white/10 hover:ring-indigo-400/60"
       } bg-neutral-50/90 dark:bg-neutral-800/70`}
     >
+      {pasting && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 dark:bg-neutral-900/70 text-xs font-medium">{t("panel.pasting")}</div>}
       {/* 粘贴队列序号角标(队列成员左上角显示顺位) */}
       {queueIndex !== undefined && (
         <span className="absolute -top-1.5 -left-1.5 z-10 w-5 h-5 rounded-full bg-violet-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-neutral-900">
@@ -240,7 +260,7 @@ export default memo(function ClipCard({ clip, selected, queueIndex, boards, onCl
         )}
       </div>
 
-      <div className="flex-1 overflow-hidden p-2.5 pt-2">{preview()}</div>
+      <div className="pointer-events-none flex-1 overflow-hidden p-2.5 pt-2">{preview()}</div>
 
       {/* 笔记:有则显示一行,没有就不占地方 */}
       {clip.note && (

@@ -1,6 +1,7 @@
 use crate::db::Db;
 use crate::model::{AppInfo, Board, Clip, ClipKind, SmartCollection, Tag};
 use crate::platform;
+use crate::paste::{PasteState, PasteGuard, FocusReadiness, same_app};
 use crate::util;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
@@ -37,34 +38,24 @@ fn queue_inactive() -> QueueStatus {
 
 /// 粘贴队列推进一条:面板隐藏状态下由全局热键或 queue_next 命令调用。
 /// 耗尽后自动清除队列,之后的熱键恢复正常唤起面板行为。
-pub fn queue_advance(app: &AppHandle) -> QueueStatus {
-    let Some(state) = app.try_state::<PasteQueueState>() else {
-        return queue_inactive();
+fn queue_advance_locked(app: &AppHandle, _guard: PasteGuard, revision: u64) -> Result<QueueStatus, String> {
+    app.state::<PasteState>().check(revision)?;
+    let state = app.state::<PasteQueueState>();
+    let (id, pos) = {
+        let g = state.0.lock().unwrap();
+        let Some(q) = g.as_ref() else { return Ok(queue_inactive()); };
+        let Some(id) = q.ids.get(q.pos) else { return Ok(queue_inactive()); };
+        (*id, q.pos)
     };
-    let id = {
-        let mut g = state.0.lock().unwrap();
-        let Some(q) = g.as_mut() else {
-            return queue_inactive();
-        };
-        if q.pos >= q.ids.len() {
-            *g = None;
-            return QueueStatus { active: false, done: true, remaining: 0, pasted_id: None };
-        }
-        let id = q.ids[q.pos];
-        q.pos += 1;
-        id
-    };
-    let db = app.state::<Db>();
-    let _ = paste_clip_internal(app, &db, id, false);
+    paste_clip_internal(app, id, false, revision)?;
     let mut g = state.0.lock().unwrap();
-    match g.as_ref() {
-        Some(q) if q.pos >= q.ids.len() => {
-            *g = None;
-            QueueStatus { active: false, done: true, remaining: 0, pasted_id: Some(id) }
-        }
-        Some(q) => QueueStatus { active: true, done: false, remaining: q.ids.len() - q.pos, pasted_id: Some(id) },
-        None => QueueStatus { active: false, done: true, remaining: 0, pasted_id: Some(id) },
-    }
+    // Cancel/replacement must not be overwritten by an old completion.
+    let Some(q) = g.as_mut() else { return Ok(queue_inactive()); };
+    if q.pos != pos || q.ids.get(pos) != Some(&id) { return Ok(queue_inactive()); }
+    q.pos += 1;
+    let remaining = q.ids.len() - q.pos;
+    if remaining == 0 { *g = None; }
+    Ok(QueueStatus { active: remaining > 0, done: remaining == 0, remaining, pasted_id: Some(id) })
 }
 
 fn queue_is_active(app: &AppHandle) -> bool {
@@ -74,39 +65,35 @@ fn queue_is_active(app: &AppHandle) -> bool {
 }
 
 #[tauri::command]
-pub fn queue_start(
-    app: AppHandle,
-    db: State<Db>,
-    ids: Vec<i64>,
-) -> Result<QueueStatus, String> {
-    if ids.is_empty() {
-        return Err("队列不能为空".into());
-    }
-    // 队列依赖自动粘贴把每条内容送进目标应用
-    if db.get_setting("auto_paste").unwrap_or_else(|| "true".into()) != "true"
-        || !platform::can_auto_paste()
-    {
-        return Err("粘贴队列需要开启「自动粘贴」并授予辅助功能权限".into());
-    }
-    // 校验所有条目存在,避免中途断档
-    for id in &ids {
-        if db.get_clip(*id).is_none() {
-            return Err(format!("条目 {id} 不存在,可能已被删除"));
+pub async fn queue_start(app: AppHandle, ids: Vec<i64>) -> Result<QueueStatus, String> {
+    let guard = app.state::<PasteState>().begin()?;
+    let revision = app.state::<PasteState>().revision();
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<PasteState>().check(revision)?;
+        let db = app.state::<Db>();
+        if ids.is_empty() { return Err("队列不能为空".into()); }
+        if db.get_setting("auto_paste").unwrap_or_else(|| "true".into()) != "true"
+            || !platform::can_auto_paste() {
+            return Err("粘贴队列需要开启「自动粘贴」并授予辅助功能权限".into());
         }
-    }
-    *app.state::<PasteQueueState>().0.lock().unwrap() =
-        Some(QueueData { ids: ids.clone(), pos: 0 });
-    let status = queue_advance(&app);
-    Ok(status)
+        for id in &ids {
+            if db.get_clip(*id).is_none() { return Err(format!("条目 {id} 不存在，可能已被删除")); }
+        }
+        *app.state::<PasteQueueState>().0.lock().unwrap() = Some(QueueData { ids, pos: 0 });
+        queue_advance_locked(&app, guard, revision)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn queue_next(app: AppHandle) -> QueueStatus {
-    queue_advance(&app)
+pub async fn queue_next(app: AppHandle) -> Result<QueueStatus, String> {
+    let guard = app.state::<PasteState>().begin()?;
+    let revision = app.state::<PasteState>().revision();
+    tauri::async_runtime::spawn_blocking(move || queue_advance_locked(&app, guard, revision)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub fn queue_cancel(app: AppHandle) -> QueueStatus {
+    app.state::<PasteState>().cancel();
     if let Some(state) = app.try_state::<PasteQueueState>() {
         *state.0.lock().unwrap() = None;
     }
@@ -133,7 +120,15 @@ pub fn queue_status(app: AppHandle) -> QueueStatus {
 // 导出给 lib.rs 热键回调使用
 pub fn queue_try_advance_on_hotkey(app: &AppHandle) -> bool {
     if queue_is_active(app) {
-        queue_advance(app);
+        // Acquire before scheduling so repeated key events cannot queue extra workers.
+        let Ok(guard) = app.state::<PasteState>().begin() else { return true; };
+        let revision = app.state::<PasteState>().revision();
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(message) = queue_advance_locked(&app, guard, revision) {
+                let _ = app.emit("paste-failed", message);
+            }
+        });
         true
     } else {
         false
@@ -328,64 +323,107 @@ pub fn get_reveal_lock(db: State<Db>) -> bool {
 }
 
 #[tauri::command]
-pub fn copy_clip(app: AppHandle, db: State<Db>, id: i64) -> Result<(), String> {
-    let clip = db.get_clip(id).ok_or("条目不存在")?;
-    write_clip(&clip, false)?;
-    db.bump_usage(id);
-    emit(&app, "copy");
-    Ok(())
+pub async fn copy_clip(app: AppHandle, id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = app.state::<PasteState>().begin()?;
+        let db = app.state::<Db>();
+        let clip = db.get_clip(id).ok_or("条目不存在")?;
+        write_clip(&clip, false)?;
+        db.bump_usage(id);
+        emit(&app, "copy");
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
 }
 
-/// 把任意文本直接写入系统剪贴板(OCR 文字「复制」按钮用)。
 #[tauri::command]
-pub fn copy_text(text: String) -> Result<(), String> {
-    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    cb.set().text(text).map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = app.state::<PasteState>().begin()?;
+        let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        cb.set().text(text).map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
 }
 
-/// 执行真正的粘贴逻辑(写剪贴板、可选自动粘贴、更新使用次数)
-/// 不隐藏面板,由调用方决定是否隐藏
-fn paste_clip_internal(app: &AppHandle, db: &State<Db>, id: i64, plain: bool) -> Result<(), String> {
-    let clip = db.get_clip(id).ok_or("条目不存在")?;
-    write_clip(&clip, plain)?;
-    db.bump_usage(id);
+/// Called only from a worker: AppKit window/focus operations remain on the main thread.
+fn on_main<T: Send + 'static>(app: &AppHandle, work: impl FnOnce(AppHandle) -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || { let _ = tx.send(work(handle)); }).map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())?
+}
 
+fn paste_clip_internal(app: &AppHandle, id: i64, plain: bool, revision: u64) -> Result<(), String> {
+    let state = app.state::<PasteState>();
+    state.check(revision)?;
+    let db = app.state::<Db>();
+    let clip = db.get_clip(id).ok_or("条目不存在")?;
     let auto = db.get_setting("auto_paste").unwrap_or_else(|| "true".into()) == "true";
-    if auto && platform::can_auto_paste() {
-        let prev = app
-            .try_state::<crate::PreviousApp>()
-            .map(|s| s.0.lock().ok().and_then(|g| g.clone()))
-            .unwrap_or(None);
-        std::thread::spawn(move || {
-            // 1) 等剪贴板写入与窗口状态稳定
-            std::thread::sleep(std::time::Duration::from_millis(120));
-            // 2) 面板隐藏后焦点可能停留在 PasteNext(Accessory 应用不会自动
-            //    归还激活权),主动把唤起面板前的前台应用拉回来
-            if let Some(p) = prev {
-                if !platform::activate_app(&p) {
-                    eprintln!("[paste] activate previous app {:?} failed", p.name);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(180));
+    let target = if auto {
+        if !platform::can_auto_paste() { return Err("请先在系统设置中授予 PasteNext 辅助功能权限，再重试粘贴".into()); }
+        Some(app.state::<crate::PreviousApp>().0.lock().unwrap().clone()
+            .ok_or("没有可粘贴的目标应用，请先点击目标输入框，再唤起面板")?)
+    } else { None };
+
+    // Image decoding and clipboard serialization no longer block the window event loop.
+    write_clip(&clip, plain)?;
+    let clipboard_revision = platform::change_count();
+    state.check(revision)?;
+    let activate = target.clone();
+    on_main(app, move |app| {
+        app.state::<PasteState>().check(revision)?;
+        crate::hide_panel_for_paste(&app)?;
+        if let Some(target) = activate {
+            if !platform::frontmost_app().is_some_and(|current| same_app(&current, &target)) {
+                // Windows may restore focus as a result of hiding the panel; verify below.
+                platform::activate_app(&target);
             }
-            eprintln!(
-                "[paste] frontmost at send: {:?}",
-                platform::frontmost_app().map(|a| a.name)
-            );
-            // 3) 合成 Cmd/Ctrl+V
-            platform::send_paste();
-        });
-    } else if auto {
-        eprintln!("[paste_clip] 未合成粘贴:缺少辅助功能权限(macOS 系统设置中授权)");
+        }
+        Ok(())
+    })?;
+
+    if let Some(target) = target {
+        let mut readiness = FocusReadiness::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        loop {
+            state.check(revision)?;
+            let current = platform::frontmost_app();
+            let ready = readiness.observe(current.as_ref().is_some_and(|a| same_app(a, &target)), platform::paste_modifiers_released())?;
+            if ready { break; }
+            if std::time::Instant::now() >= deadline {
+                return Err("未能恢复目标输入焦点，或修饰键尚未松开；请松开按键后重试".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // Recheck in the same main-thread task that injects the keystrokes.
+        on_main(app, move |app| {
+            app.state::<PasteState>().check(revision)?;
+            if !platform::frontmost_app().is_some_and(|current| same_app(&current, &target)) {
+                return Err("目标应用已切换，已取消自动粘贴".into());
+            }
+            if platform::change_count() != clipboard_revision {
+                return Err("剪贴板已更新，已取消自动粘贴，请重试".into());
+            }
+            if !platform::paste_modifiers_released() { return Err("请松开修饰键后重试粘贴".into()); }
+            platform::send_paste()
+        })?;
+        // Keep the clipboard stable while the posted OS key events are delivered.
+        // This runs after injection, so it does not delay the visible paste.
+        std::thread::sleep(std::time::Duration::from_millis(40));
     }
+    db.bump_usage(id);
+    emit(app, "paste");
     Ok(())
 }
 
 #[tauri::command]
-pub fn paste_clip(app: AppHandle, db: State<Db>, id: i64, plain: Option<bool>) -> Result<(), String> {
-    paste_clip_internal(&app, &db, id, plain.unwrap_or(false))?;
-    emit(&app, "paste");
-    Ok(())
+pub async fn paste_clip(app: AppHandle, id: i64, plain: Option<bool>) -> Result<(), String> {
+    // Capture before scheduling: a reopened panel must invalidate even a queued worker.
+    let revision = app.state::<PasteState>().revision();
+    let guard = app.state::<PasteState>().begin()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        paste_clip_internal(&app, id, plain.unwrap_or(false), revision)
+    }).await.map_err(|e| e.to_string())?
 }
 
 /// 把条目内容写回系统剪贴板;plain=true 时富文本降级为纯文本

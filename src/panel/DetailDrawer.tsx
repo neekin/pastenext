@@ -7,6 +7,8 @@ import type { Board, Clip } from "../types";
 
 interface Props {
   clip: Clip;
+  onPaste: (id: number) => Promise<void>;
+  pasting: boolean;
   boards: Board[];
   onClose: () => void;
   /** 来源卡片在视口中的位置,用于把编辑浮层锚定到卡片所在列(而非右侧整高抽屉) */
@@ -22,6 +24,8 @@ interface Props {
 
 export default function DetailDrawer({
   clip,
+  onPaste,
+  pasting,
   boards,
   onClose,
   anchor,
@@ -422,15 +426,20 @@ export default function DetailDrawer({
       <div className="flex gap-2 px-4 py-3 border-t border-black/5 dark:border-white/10">
         <button
           onClick={async () => {
-            await api.copyClip(cur.id).catch(() => {});
-            say(t("detail.copiedToClipboard"));
+            try {
+              await api.copyClip(cur.id);
+              say(t("detail.copiedToClipboard"));
+            } catch (error) {
+              say(String(error));
+            }
           }}
           className="flex-1 h-8 rounded-lg bg-black/5 dark:bg-white/10 text-xs text-neutral-700 dark:text-neutral-200 hover:bg-black/10 dark:hover:bg-white/20"
         >
           {t("detail.copy")}
         </button>
         <button
-          onClick={() => api.pasteClip(cur.id).catch(() => {})}
+          disabled={pasting}
+          onClick={() => void onPaste(cur.id)}
           className="flex-1 h-8 rounded-lg bg-indigo-500 text-white text-xs hover:bg-indigo-600"
         >
           {t("detail.paste")}

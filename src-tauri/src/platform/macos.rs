@@ -322,6 +322,7 @@ extern "C" {
     ) -> *mut std::ffi::c_void;
     fn CGEventSetFlags(event: *mut std::ffi::c_void, flags: u64);
     fn CGEventPost(tap: u32, event: *mut std::ffi::c_void);
+    fn CGEventSourceFlagsState(state: i32) -> u64;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -353,7 +354,12 @@ pub fn request_accessibility() -> bool {
     }
 }
 
-pub fn send_paste() {
+pub fn paste_modifiers_released() -> bool {
+    const MODIFIERS: u64 = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
+    unsafe { CGEventSourceFlagsState(1) & MODIFIERS == 0 }
+}
+
+pub fn send_paste() -> Result<(), String> {
     unsafe {
         // 完整的修饰键按下/抬起序列:Cmd↓ → V↓ → V↑ → Cmd↑。
         // 只给 V 事件附加 flags 而不发修饰键事件,可能造成修饰键状态残留
@@ -368,16 +374,18 @@ pub fn send_paste() {
         for (key, down, flags) in events {
             let ev = CGEventCreateKeyboardEvent(std::ptr::null(), key, down);
             if ev.is_null() {
-                continue;
+                for ev in posted { CFRelease(ev); }
+                return Err("无法创建粘贴按键事件".into());
             }
             CGEventSetFlags(ev, flags);
-            CGEventPost(K_CG_HID_EVENT_TAP, ev);
             posted.push(ev);
         }
         for ev in posted {
+            CGEventPost(K_CG_HID_EVENT_TAP, ev);
             CFRelease(ev);
         }
     }
+    Ok(())
 }
 
 pub fn is_accessibility_trusted() -> bool {

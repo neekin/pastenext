@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { api, onClipsUpdated, onPanelShown, onSettingsChanged } from "../api";
+import { api, onClipsUpdated, onPanelShown, onSettingsChanged, onPasteFailed } from "../api";
 import { useI18n } from "../i18n";
 import type { Board, Clip, ClipKind, SmartCollection } from "../types";
 import ClipStrip from "./ClipStrip";
@@ -18,7 +18,14 @@ export default function Panel() {
   const [sourceApp, setSourceApp] = useState<string | null>(null);
   const [range, setRange] = useState<"all" | "today" | "7d" | "30d">("all");
   const [sourceApps, setSourceApps] = useState<string[]>([]);
-  const [selected, setSelected] = useState(0);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selectionChangedRef = useRef(false);
+  const selected = Math.max(0, clips.findIndex((clip) => clip.id === selectedId));
+  const [scrollSelection, setScrollSelection] = useState(true);
+  const [focusSelection, setFocusSelection] = useState(false);
+  const [pastingId, setPastingId] = useState<number | null>(null);
+  const [pasteError, setPasteError] = useState("");
+  const pasteBusyRef = useRef(false);
   const [detail, setDetail] = useState<Clip | null>(null);
   // 编辑浮层的锚点(来源卡片在视口中的位置)与根节点 ref,用于把浮层锚定到卡片列、并做"点外部关闭"命中检测
   const [detailAnchor, setDetailAnchor] = useState<DOMRect | null>(null);
@@ -104,9 +111,6 @@ export default function Panel() {
     loadCfg();
   }, [loadCfg]);
 
-  // 防止双击卡片触发两次粘贴
-  const lastPasteRef = useRef<{ id: number; at: number }>({ id: -1, at: 0 });
-
   // 粘贴音效:短促轻响(WebAudio 合成,无外部资源)
   const playTick = useCallback(() => {
     if (cfgRef.current.sound_enabled === "false") return;
@@ -144,16 +148,23 @@ export default function Panel() {
     api.hidePanel().catch(() => {});
   }, [cancelWakeWork]);
 
-  const pasteClip = useCallback((id: number, plain: boolean = false) => {
-    const now = Date.now();
-    if (lastPasteRef.current.id === id && now - lastPasteRef.current.at < 600) {
-      return;
+  const pasteClip = useCallback(async (id: number, plain: boolean = false) => {
+    if (pasteBusyRef.current) return;
+    pasteBusyRef.current = true;
+    cancelWakeWork();
+    setPastingId(id);
+    setPasteError("");
+    try {
+      // 原生端负责写剪贴板、隐藏窗口、恢复目标焦点和发送按键。
+      await api.pasteClip(id, plain);
+      playTick();
+    } catch (error) {
+      setPasteError(String(error));
+    } finally {
+      pasteBusyRef.current = false;
+      setPastingId(null);
     }
-    lastPasteRef.current = { id, at: now };
-    playTick();
-    // 粘贴成功后滑出关闭(失败则保留面板以便重试)
-    api.pasteClip(id, plain).then(() => requestHide()).catch(() => {});
-  }, [playTick, requestHide]);
+  }, [playTick, cancelWakeWork]);
 
   // 粘贴队列:Shift/⌘/Ctrl+点击卡片 加入/移出
   const toggleQueue = useCallback((id: number) => {
@@ -165,16 +176,19 @@ export default function Panel() {
 
   // 开始顺序粘贴:面板先收起,后端立即粘贴第 1 条,之后每按一次全局热键粘贴下一条
   const startQueue = useCallback(async () => {
-    if (queueIds.length === 0) return;
+    if (queueIds.length === 0 || pasteBusyRef.current) return;
+    pasteBusyRef.current = true;
+    setPasteError("");
     try {
       cancelWakeWork();
-      await api.hidePanel();
       await api.queueStart(queueIds);
       setQueueIds([]);
       setQueueError("");
     } catch (e) {
       setQueueError(String(e));
-      setTimeout(() => setQueueError(""), 4000);
+      setPasteError(String(e));
+    } finally {
+      pasteBusyRef.current = false;
     }
   }, [queueIds, cancelWakeWork]);
 
@@ -184,14 +198,24 @@ export default function Panel() {
   }, [clips]);
 
   const onClipClick = useCallback((id: number, e: ReactMouseEvent) => {
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
-      toggleQueue(id);
-      return;
-    }
-    pasteClip(id, plainFor(e));
-  }, [toggleQueue, pasteClip, plainFor]);
+    selectionChangedRef.current = true;
+    setSelectedId(id);
+    setScrollSelection(false);
+    setFocusSelection(true);
+    // 双击的第二个 click 不再次切换队列状态。
+    if (e.detail <= 1 && (e.shiftKey || e.metaKey || e.ctrlKey)) toggleQueue(id);
+  }, [toggleQueue]);
+
+  const onClipDoubleClick = useCallback((id: number, e: ReactMouseEvent) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+    void pasteClip(id, plainFor(e));
+  }, [pasteClip, plainFor]);
 
   const openDetail = useCallback((clip: Clip, rect: DOMRect) => {
+    selectionChangedRef.current = true;
+    setSelectedId(clip.id);
+    setScrollSelection(false);
+    setFocusSelection(false);
     setDetailAnchor(rect);
     setDetail(clip);
   }, []);
@@ -220,7 +244,7 @@ export default function Panel() {
       .then((rows) => {
         if (version !== reloadVersionRef.current) return;
         setClips((previous) => reconcileClips(previous, rows));
-        setSelected((s) => Math.min(s, Math.max(rows.length - 1, 0)));
+        setSelectedId((id) => selectionChangedRef.current && rows.some((clip) => clip.id === id) ? id : rows[0]?.id ?? null);
       })
       .catch(() => {});
   }, [query, kind, boardId, sourceApp, since]);
@@ -271,12 +295,17 @@ export default function Panel() {
 
   useEffect(() => {
     const u1 = onClipsUpdated(() => reloadRef.current());
+    const u4 = onPasteFailed(setPasteError);
     // 智能集合/其它设置变更时刷新 cfg(集合定义即 settings JSON)
     const u3 = onSettingsChanged(() => loadCfg());
     const u2 = onPanelShown(() => {
       cancelWakeWork();
       const version = wakeVersionRef.current;
       wakingRef.current = true;
+      selectionChangedRef.current = false;
+      setSelectedId(null);
+      setScrollSelection(true);
+      setFocusSelection(false);
       setDetail(null);
       setDetailAnchor(null);
       // 常驻内容直接呈现；输入框立即可用，不等网络、IPC 或双 rAF。
@@ -308,6 +337,7 @@ export default function Panel() {
       u1.then((f) => f());
       u2.then((f) => f());
       u3.then((f) => f());
+      u4.then((f) => f());
     };
   }, []);
 
@@ -375,6 +405,7 @@ export default function Panel() {
 
   // 两段式 Esc:抽屉打开时先关抽屉;队列非空时先清队列;最后才隐藏面板
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Escape") {
       e.preventDefault();
       if (detail) {
@@ -390,16 +421,26 @@ export default function Panel() {
     // 编辑抽屉打开时,其余按键(导航/回车粘贴)不参与面板操作,
     // 避免在抽屉输入框里打字时误触发卡片导航
     if (detail) return;
+    const target = e.target as HTMLElement;
+    if (target !== searchRef.current && target.closest("button, input, textarea, select, a")) return;
+    if (target === searchRef.current && query && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
+    if (e.key === "Enter" && e.repeat) return;
     if (e.metaKey && (e.key === "[" || e.key === "]")) {
       // ⌘[ / ⌘] 切换上一个/下一个看板
       e.preventDefault();
       cycleBoard(e.key === "]" ? 1 : -1);
     } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
-      setSelected((s) => Math.min(s + 1, Math.max(0, clips.length - 1)));
+      selectionChangedRef.current = true;
+      setScrollSelection(true);
+      setFocusSelection(target !== searchRef.current);
+      setSelectedId(clips[Math.min(selected + 1, Math.max(0, clips.length - 1))]?.id ?? null);
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
-      setSelected((s) => Math.max(s - 1, 0));
+      selectionChangedRef.current = true;
+      setScrollSelection(true);
+      setFocusSelection(target !== searchRef.current);
+      setSelectedId(clips[Math.max(selected - 1, 0)]?.id ?? null);
     } else if (e.key === "Enter" && queueIds.length > 0) {
       // 队列非空:回车 = 开始顺序粘贴
       e.preventDefault();
@@ -630,18 +671,25 @@ export default function Panel() {
         <ClipStrip
           clips={clips}
           selected={selected}
+          scrollSelection={scrollSelection}
+          focusSelection={focusSelection}
+          pastingId={pastingId}
           queueIds={queueIds}
           boards={boards}
           emptyLabel={t("panel.empty")}
           onClick={onClipClick}
+          onDoubleClick={onClipDoubleClick}
           onDetail={openDetail}
         />
+        <div className="px-4 pb-2 text-[11px] text-neutral-400 dark:text-neutral-500">{t("panel.interactionHint")}</div>
         </div>
       </div>
 
       {detail && (
         <DetailDrawer
           clip={detail}
+          onPaste={pasteClip}
+          pasting={pastingId !== null}
           boards={boards}
           anchor={detailAnchor}
           rootRef={detailRootRef}
@@ -656,6 +704,12 @@ export default function Panel() {
         />
       )}
 
+      {pasteError && (
+        <div role="alert" data-no-autohide className="fixed bottom-3 left-4 right-4 z-[90] flex items-center justify-between gap-3 rounded-lg bg-red-50 dark:bg-red-950 px-3 py-2 text-xs text-red-700 dark:text-red-200 shadow-lg">
+          <span>{pasteError}</span>
+          <button onClick={() => setPasteError("")} aria-label={t("detail.close")} className="shrink-0 px-2 py-1">✕</button>
+        </div>
+      )}
       <LicenseGate license={license} />
     </div>
   );

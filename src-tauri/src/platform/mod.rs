@@ -43,8 +43,12 @@ pub fn resolve_app_path(name: &str) -> Option<String> {
     imp::resolve_app_path(name)
 }
 
-pub fn send_paste() {
+pub fn send_paste() -> Result<(), String> {
     imp::send_paste()
+}
+
+pub fn paste_modifiers_released() -> bool {
+    imp::paste_modifiers_released()
 }
 
 pub fn write_files(paths: &[String]) -> Result<(), String> {

@@ -24,7 +24,8 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 |---|---|
 | Show / hide panel | `Cmd+Shift+V` (macOS) / `Ctrl+Alt+V` (Windows), configurable |
 | Select item | `←` `→` (or `↑` `↓`) |
-| Paste selected item | `Enter` (or click the card) |
+| Select an item | Click the card |
+| Paste selected item | `Enter` or double-click the card |
 | Close panel | `Esc` / click another window |
 
 > **First run on macOS**: auto-paste requires the **Accessibility** permission (System Settings → Privacy & Security → Accessibility). The panel shows a shortcut to it; without the permission you can still copy and press `Cmd+V` manually.

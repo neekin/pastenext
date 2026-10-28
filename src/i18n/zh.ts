@@ -2,6 +2,9 @@ export const zhCN = {
   "app.name": "PasteNext",
   "app.settings": "设置",
 
+  "panel.interactionHint": "单击选中 · 双击或回车粘贴 · Shift/⌘/Ctrl+单击加入队列",
+  "panel.pasting": "正在粘贴…",
+
   // Panel
   "panel.searchPlaceholder": "搜索剪贴板…",
   "panel.filter.sourceApp": "按来源应用筛选",

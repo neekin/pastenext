@@ -2,6 +2,9 @@ export const en = {
   "app.name": "PasteNext",
   "app.settings": "Settings",
 
+  "panel.interactionHint": "Click to select · Double-click or Enter to paste · Shift/⌘/Ctrl+click to queue",
+  "panel.pasting": "Pasting…",
+
   // Panel
   "panel.searchPlaceholder": "Search clipboard…",
   "panel.filter.sourceApp": "Filter by source app",

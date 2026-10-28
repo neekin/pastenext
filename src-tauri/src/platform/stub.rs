@@ -29,7 +29,9 @@ pub fn write_files(_paths: &[String]) -> Result<(), String> {
     Err("当前平台不支持".into())
 }
 
-pub fn send_paste() {}
+pub fn paste_modifiers_released() -> bool { true }
+
+pub fn send_paste() -> Result<(), String> { Err("当前平台不支持自动粘贴".into()) }
 
 pub fn is_accessibility_trusted() -> bool {
     true

@@ -8,6 +8,7 @@ mod model;
 mod monitor;
 mod ocr;
 mod platform;
+mod paste;
 mod sensitive;
 mod tray;
 mod util;
@@ -15,7 +16,7 @@ mod util;
 use commands::HotkeyState;
 use db::Db;
 use model::AppInfo;
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::{AtomicU64, Ordering}};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -34,6 +35,13 @@ pub struct PreviousApp(pub Mutex<Option<AppInfo>>);
 /// 面板期望可见性:用于退场动画延迟 hide 与快速唤起之间的竞态守卫
 pub struct PanelIntent(pub Mutex<bool>);
 
+#[derive(Default)]
+pub struct PanelAnimation(pub AtomicU64);
+
+fn animation_is_current(app: &AppHandle, revision: u64) -> bool {
+    app.state::<PanelAnimation>().0.load(Ordering::SeqCst) == revision
+}
+
 /// 面板几何缓存:宽度在进入面板「之前」就按当前屏幕算好并记录下来,
 /// 之后每次唤起直接复用,避免 show() 时重复计算/窗口几何跳动带来的淡入抖动。
 /// 屏幕分辨率变化(换屏/改分辨率)时自动失效重算。
@@ -44,6 +52,8 @@ pub fn show_panel(app: &AppHandle) {
         eprintln!("[show_panel] panel window not found!");
         return;
     };
+    app.state::<paste::PasteState>().cancel();
+    let revision = app.state::<PanelAnimation>().0.fetch_add(1, Ordering::SeqCst) + 1;
     // 记录唤起前的前台应用(此刻目标应用还是 frontmost)
     let fg = platform::frontmost_app();
     let is_self = fg
@@ -53,7 +63,7 @@ pub fn show_panel(app: &AppHandle) {
         .unwrap_or(false);
     if let Some(state) = app.try_state::<PreviousApp>() {
         if let Ok(mut guard) = state.0.lock() {
-            *guard = if is_self { None } else { fg };
+            if !is_self { *guard = fg; }
         }
     }
     let monitor = app
@@ -128,7 +138,7 @@ pub fn show_panel(app: &AppHandle) {
     let _ = app.emit("panel-shown", ());
     // 启动进场滑入动画:整块面板从屏幕底边外平滑升到贴底位(240ms easeOut)
     if let Some((x, start_y, final_y, target_frame)) = slide_anim {
-        animate_window_y(app.clone(), x, start_y, final_y, target_frame, 240, false);
+        animate_window_y(app.clone(), x, start_y, final_y, target_frame, 240, false, revision);
     }
 }
 
@@ -136,9 +146,12 @@ pub fn hide_panel(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("panel") {
         if let Some(state) = app.try_state::<PanelIntent>() {
             if let Ok(mut g) = state.0.lock() {
+                if !*g { return; }
                 *g = false;
             }
         }
+        app.state::<paste::PasteState>().cancel();
+        let revision = app.state::<PanelAnimation>().0.fetch_add(1, Ordering::SeqCst) + 1;
         // 退场:200ms easeIn 整块下滑、完全退出屏幕底边,结束后隐藏窗口(与进场对称)
         if let Ok(pos) = win.outer_position() {
             let cur_y = pos.y;
@@ -146,7 +159,7 @@ pub fn hide_panel(app: &AppHandle) {
             let h = win.outer_size().unwrap_or_default().height;
             let to_y = cur_y + h as i32;
             let app2 = app.clone();
-            animate_window_y(app2.clone(), x, cur_y, to_y, None, 200, true);
+            animate_window_y(app2.clone(), x, cur_y, to_y, None, 200, true, revision);
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 let app3 = app2.clone();
@@ -156,7 +169,7 @@ pub fn hide_panel(app: &AppHandle) {
                         .try_state::<PanelIntent>()
                         .map(|s| *s.0.lock().unwrap_or_else(|e| e.into_inner()) == false)
                         .unwrap_or(true);
-                    if still_leaving {
+                    if still_leaving && animation_is_current(&app3, revision) {
                         if let Some(w) = app3.get_webview_window("panel") {
                             let _ = w.hide();
                         }
@@ -167,6 +180,17 @@ pub fn hide_panel(app: &AppHandle) {
             let _ = win.hide();
         }
     }
+}
+
+/// 粘贴交接时立即让出窗口与焦点，不等待退场动画；使旧动画和延迟 hide 失效。
+/// 只在主线程调用。
+pub(crate) fn hide_panel_for_paste(app: &AppHandle) -> Result<(), String> {
+    app.state::<PanelAnimation>().0.fetch_add(1, Ordering::SeqCst);
+    *app.state::<PanelIntent>().0.lock().unwrap() = false;
+    if let Some(win) = app.get_webview_window("panel") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// OS 级窗口 Y 坐标位移动画:从 start_y 平滑升/降到 final_y。
@@ -185,11 +209,13 @@ fn animate_window_y(
     target_frame: Option<(f64, f64, f64, f64)>,
     duration_ms: u64,
     ease_in: bool,
+    revision: u64,
 ) {
     #[cfg(target_os = "macos")]
     {
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
+            if !animation_is_current(&app2, revision) { return; }
             if let Some(win) = app2.get_webview_window("panel") {
                 // 先把起点复位(原子化起点与动画,防止此间隙被其它调用移动)
                 let _ = win.set_position(PhysicalPosition::new(x, start_y));
@@ -226,6 +252,7 @@ fn animate_window_y(
             let steps: u64 = 20;
             let sleep = duration_ms / steps;
             for i in 0..=steps {
+                if !animation_is_current(&app, revision) { return; }
                 let t = i as f64 / steps as f64;
                 let eased = if ease_in { t.powi(3) } else { 1.0 - (1.0 - t).powi(3) };
                 let y = start_y + ((final_y - start_y) as f64 * eased) as i32;
@@ -241,10 +268,9 @@ fn animate_window_y(
 }
 
 pub(crate) fn toggle_panel(app: &AppHandle) {
-    let visible = app
-        .get_webview_window("panel")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
+    // During exit animation the OS window is still visible. Toggle the intent so
+    // another hotkey immediately reopens it instead of requesting a second hide.
+    let visible = *app.state::<PanelIntent>().0.lock().unwrap();
     if visible {
         hide_panel(app);
     } else {
@@ -346,6 +372,8 @@ pub fn run() {
             app.manage(HotkeyState(Mutex::new(registered)));
             app.manage(PreviousApp(Mutex::new(None)));
             app.manage(PanelIntent(Mutex::new(false)));
+            app.manage(PanelAnimation::default());
+            app.manage(paste::PasteState::default());
             app.manage(commands::PasteQueueState(Mutex::new(None)));
             app.manage(PanelGeometry(Mutex::new(None)));
 
