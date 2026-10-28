@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
 import DOMPurify from "dompurify";
 import { api, getAppIconCached } from "../api";
 import ClipImage from "./ClipImage";
@@ -61,12 +61,12 @@ interface Props {
   /** 在粘贴队列中的序号(1 起);undefined = 不在队列中 */
   queueIndex?: number;
   boards: Board[];
-  onClick: (e: MouseEvent) => void;
+  onClick: (id: number, e: MouseEvent) => void;
   /** 触发编辑时,把卡片在视口中的位置回传,供编辑浮层锚定到卡片所在列 */
-  onDetail: (rect: DOMRect) => void;
+  onDetail: (clip: Clip, rect: DOMRect) => void;
 }
 
-export default function ClipCard({ clip, selected, queueIndex, boards, onClick, onDetail }: Props) {
+export default memo(function ClipCard({ clip, selected, queueIndex, boards, onClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -75,6 +75,10 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
   const theme = KIND_THEME[clip.kind] ?? KIND_THEME.text;
   const sizeText = useMemo(() => sizeLabel(clip, t), [clip, t]);
   const [iconUrl, setIconUrl] = useState<string | null>(null);
+  const safeHtml = useMemo(
+    () => clip.kind === "rich_text" && clip.html ? DOMPurify.sanitize(clip.html) : "",
+    [clip.kind, clip.html]
+  );
 
   // 来源 App 图标:按 key 取 data URL(模块级缓存,同一 App 全列表共享一次 IPC)
   useEffect(() => {
@@ -90,12 +94,6 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
       alive = false;
     };
   }, [clip.sourceAppKey]);
-
-  useEffect(() => {
-    if (selected) {
-      ref.current?.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
-    }
-  }, [selected]);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.effectAllowed = "copy";
@@ -186,7 +184,7 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
         <div className="html-preview-wrap">
           <div
             className="html-preview"
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(clip.html) }}
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
         </div>
       );
@@ -210,7 +208,7 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
       ref={ref}
       data-clip-card
       draggable
-      onClick={onClick}
+      onClick={(e) => onClick(clip.id, e)}
       onDragStart={handleDragStart}
       className={`group relative shrink-0 w-[188px] h-[224px] rounded-xl flex flex-col cursor-grab active:cursor-grabbing transition-all ring-1 overflow-hidden ${
         queueIndex !== undefined
@@ -271,7 +269,7 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (ref.current) onDetail(ref.current.getBoundingClientRect());
+            if (ref.current) onDetail(clip, ref.current.getBoundingClientRect());
           }}
           title={t("panel.editTitle")}
           className="w-6 h-6 rounded-md bg-white/90 dark:bg-neutral-700/90 shadow text-xs flex items-center justify-center hover:bg-indigo-500 hover:text-white transition-colors"
@@ -347,4 +345,4 @@ export default function ClipCard({ clip, selected, queueIndex, boards, onClick, 
       )}
     </div>
   );
-}
+});

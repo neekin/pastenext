@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import Panel from "./panel/Panel";
 import Settings from "./settings/Settings";
-import { api, onSettingsChanged, onPanelShown } from "./api";
+import { api, onSettingsChanged } from "./api";
 import { applyTheme } from "./theme";
 import { useI18n, type Locale } from "./i18n";
 
@@ -37,14 +37,12 @@ export default function App() {
         setLocale(value as Locale);
       }
     });
-    // 面板每次唤起也刷新一次(覆盖设置在隐藏期间被修改的情况)
-    const u2 = onPanelShown(refresh);
+    // WebView 隐藏期间也接收 settings-changed，无需在每次唤醒时重复读取。
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onSys = () => refresh();
     mq.addEventListener("change", onSys);
     return () => {
       u1.then((f) => f());
-      u2.then((f) => f());
       mq.removeEventListener("change", onSys);
     };
   }, [setLocale]);

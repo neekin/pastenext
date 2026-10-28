@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { api, onClipsUpdated, onPanelShown, onSettingsChanged } from "../api";
 import { useI18n } from "../i18n";
 import type { Board, Clip, ClipKind, SmartCollection } from "../types";
-import ClipCard from "./ClipCard";
+import ClipStrip from "./ClipStrip";
+import { reconcileClips } from "./reconcileClips";
 import DetailDrawer from "./DetailDrawer";
 import LicenseGate from "../license/LicenseGate";
 import { useLicense } from "../license/useLicense";
@@ -25,11 +26,17 @@ export default function Panel() {
   const [addingBoard, setAddingBoard] = useState(false);
   const [newBoard, setNewBoard] = useState("");
   const [axTrusted, setAxTrusted] = useState(true);
-  // 进场可见性闸门:唤起瞬间先把面板隐藏,等 WebView 把窗口几何(全宽)应用完再揭幕,
-  // 否则首帧仍是 860 宽,会出现横向滚动条闪烁 + 面板"展开"的跳变
-  const [entered, setEntered] = useState(false);
-  // 退场动画:关闭时先播放淡出,结束后再真正隐藏窗口
-  const [leaving, setLeaving] = useState(false);
+  // 240ms 原生进场期间推迟授权检查与窗口调高，避免打断窗口动画。
+  const wakingRef = useRef(false);
+  const wakeVersionRef = useRef(0);
+  const wakeWorkRef = useRef({ frame: 0, refresh: 0, settled: 0 });
+  const cancelWakeWork = useCallback(() => {
+    ++wakeVersionRef.current;
+    cancelAnimationFrame(wakeWorkRef.current.frame);
+    window.clearTimeout(wakeWorkRef.current.refresh);
+    window.clearTimeout(wakeWorkRef.current.settled);
+    wakingRef.current = false;
+  }, []);
   // 每个会话只自动弹一次系统授权提示
   const axPromptedRef = useRef(false);
   // 运行时设置(纯文本模式/修饰键/音效等)
@@ -133,8 +140,9 @@ export default function Panel() {
   // 退场:直接交给 Rust 在 OS 窗口级做下滑(见 src-tauri/src/lib.rs hide_panel),
   // 与进场的窗口级上滑对称。这里不再等 CSS 退场动画,否则会有 230ms 的空档再下滑。
   const requestHide = useCallback(() => {
+    cancelWakeWork();
     api.hidePanel().catch(() => {});
-  }, []);
+  }, [cancelWakeWork]);
 
   const pasteClip = useCallback((id: number, plain: boolean = false) => {
     const now = Date.now();
@@ -159,6 +167,7 @@ export default function Panel() {
   const startQueue = useCallback(async () => {
     if (queueIds.length === 0) return;
     try {
+      cancelWakeWork();
       await api.hidePanel();
       await api.queueStart(queueIds);
       setQueueIds([]);
@@ -167,12 +176,25 @@ export default function Panel() {
       setQueueError(String(e));
       setTimeout(() => setQueueError(""), 4000);
     }
-  }, [queueIds]);
+  }, [queueIds, cancelWakeWork]);
 
   // 全选当前筛选结果进入队列(按当前列表顺序)
   const queueSelectAll = useCallback(() => {
     setQueueIds(clips.map((c) => c.id));
   }, [clips]);
+
+  const onClipClick = useCallback((id: number, e: ReactMouseEvent) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      toggleQueue(id);
+      return;
+    }
+    pasteClip(id, plainFor(e));
+  }, [toggleQueue, pasteClip, plainFor]);
+
+  const openDetail = useCallback((clip: Clip, rect: DOMRect) => {
+    setDetailAnchor(rect);
+    setDetail(clip);
+  }, []);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const reloadRef = useRef<() => void>(() => {});
@@ -190,11 +212,14 @@ export default function Panel() {
   const contentRef = useRef<HTMLDivElement>(null);
   const lastHeightRef = useRef<number>(0);
 
+  const reloadVersionRef = useRef(0);
   const reload = useCallback(() => {
+    const version = ++reloadVersionRef.current;
     api
       .listClips({ query, kind, boardId, sourceApp, since })
       .then((rows) => {
-        setClips(rows);
+        if (version !== reloadVersionRef.current) return;
+        setClips((previous) => reconcileClips(previous, rows));
         setSelected((s) => Math.min(s, Math.max(rows.length - 1, 0)));
       })
       .catch(() => {});
@@ -205,18 +230,29 @@ export default function Panel() {
   // 只有高度真的变了(>0.5px)才下发,避免后台每次剪贴板更新都触发 IPC 与窗口抖动。
   const fitHeight = useCallback(() => {
     const el = contentRef.current;
-    if (!el) return;
+    if (!el || wakingRef.current) return;
     const h = el.getBoundingClientRect().height;
     if (!h) return;
     if (Math.abs(h - lastHeightRef.current) < 0.5) return;
     lastHeightRef.current = h;
-    api.setPanelHeight(Math.ceil(h)).catch(() => {});
+    api.setPanelHeight(Math.ceil(h)).catch(() => { lastHeightRef.current = 0; });
   }, []);
 
-  // 内容/提示条/看板变化后重新贴合高度(布局阶段同步测量,先于绘制,不产生视觉跳动)
-  useLayoutEffect(() => {
-    fitHeight();
-  }, [fitHeight, clips.length, boardId, kind, query, axTrusted, license.phase, addingBoard, queueIds.length]);
+  // 观察真实尺寸变化（包括换屏宽度），合并同一帧里的多次布局更新。
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fitHeight);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [fitHeight]);
 
   useEffect(() => {
     reload();
@@ -238,41 +274,37 @@ export default function Panel() {
     // 智能集合/其它设置变更时刷新 cfg(集合定义即 settings JSON)
     const u3 = onSettingsChanged(() => loadCfg());
     const u2 = onPanelShown(() => {
-      setEntered(false);
-      setLeaving(false);
-      // 抽屉不跨唤醒保留(上次会话的编辑状态已过时)
+      cancelWakeWork();
+      const version = wakeVersionRef.current;
+      wakingRef.current = true;
       setDetail(null);
       setDetailAnchor(null);
-      // 先同步触发内容加载,等数据就绪后再揭幕,避免面板滑入时内容跳动
-      reloadRef.current();
-      loadCfg();
-      licenseReloadRef.current();
-      // 等两帧,确保 WebView 已按全宽重排且数据已渲染,再揭幕播放进场动画
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          fitHeight();
-          setEntered(true);
-          searchRef.current?.focus();
-          searchRef.current?.select();
-          if (/Mac|iPhone|iPad/.test(navigator.platform)) {
-            api
-              .getAccessibilityTrusted()
-              .then((trusted) => {
-                setAxTrusted(trusted);
-                if (!trusted && !axPromptedRef.current) {
-                  axPromptedRef.current = true;
-                  api
-                    .requestAccessibility()
-                    .then(setAxTrusted)
-                    .catch(() => {});
-                }
-              })
-              .catch(() => {});
-          }
-        })
-      );
+      // 常驻内容直接呈现；输入框立即可用，不等网络、IPC 或双 rAF。
+      searchRef.current?.focus({ preventScroll: true });
+      searchRef.current?.select();
+      // 让浏览器先绘制已有内容，再取最新剪贴板，避免首帧解析/布局争用。
+      wakeWorkRef.current.frame = requestAnimationFrame(() => {
+        wakeWorkRef.current.refresh = window.setTimeout(() => reloadRef.current(), 0);
+      });
+      wakeWorkRef.current.settled = window.setTimeout(() => {
+        wakingRef.current = false;
+        fitHeight();
+        licenseReloadRef.current();
+        if (/Mac|iPhone|iPad/.test(navigator.platform)) {
+          api.getAccessibilityTrusted().then((trusted) => {
+            if (version !== wakeVersionRef.current) return;
+            setAxTrusted(trusted);
+            if (!trusted && !axPromptedRef.current) {
+              axPromptedRef.current = true;
+              api.requestAccessibility().then(setAxTrusted).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      }, 280);
     });
     return () => {
+      cancelWakeWork();
+      ++reloadVersionRef.current;
       u1.then((f) => f());
       u2.then((f) => f());
       u3.then((f) => f());
@@ -364,7 +396,7 @@ export default function Panel() {
       cycleBoard(e.key === "]" ? 1 : -1);
     } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
-      setSelected((s) => Math.min(s + 1, clips.length - 1));
+      setSelected((s) => Math.min(s + 1, Math.max(0, clips.length - 1)));
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
@@ -391,7 +423,7 @@ export default function Panel() {
       onKeyDown={onKeyDown}
     >
       <div
-        className={`panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden ${entered ? "entered" : ""} ${leaving ? "leaving" : ""}`}
+        className="panel-surface h-full flex flex-col rounded-t-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl ring-1 ring-black/10 dark:ring-white/15 overflow-hidden"
       >
         {/* 高度测量容器:自然高度 = 搜索栏 + 提示条 + 看板栏 + 卡片流,
             测量它并把结果交给 Rust 设置窗口高度,使内容刚好撑满、无纵向滚动条 */}
@@ -595,40 +627,15 @@ export default function Panel() {
           </div>
         )}
 
-        {/* 卡片流:去掉 flex-1 让它保持自然高度(卡片 224 + 上下内边距 24 = 248),
-            并显式 overflow-y-hidden —— CSS 规则下 overflow-x-auto 会把另一轴从 visible
-            隐式提升为 auto,不显式关掉就会冒出纵向滚动条 */}
-        <div className="flex items-stretch gap-3 px-4 py-3 overflow-x-auto overflow-y-hidden min-h-[248px]">
-          {clips.length === 0 && (
-            <div className="m-auto text-sm text-neutral-400 dark:text-neutral-500">
-              {t("panel.empty")}
-            </div>
-          )}
-          {clips.map((c, i) => {
-            const qi = queueIds.indexOf(c.id);
-            return (
-              <ClipCard
-                key={c.id}
-                clip={c}
-                selected={i === selected}
-                queueIndex={qi >= 0 ? qi + 1 : undefined}
-                boards={boards}
-                onClick={(e) => {
-                  // Shift/⌘/Ctrl+点击 = 加入/移出粘贴队列;普通点击 = 粘贴
-                  if (e.shiftKey || e.metaKey || e.ctrlKey) {
-                    toggleQueue(c.id);
-                    return;
-                  }
-                  pasteClip(c.id, plainFor(e));
-                }}
-                onDetail={(rect) => {
-                  setDetailAnchor(rect);
-                  setDetail(c);
-                }}
-              />
-            );
-          })}
-        </div>
+        <ClipStrip
+          clips={clips}
+          selected={selected}
+          queueIds={queueIds}
+          boards={boards}
+          emptyLabel={t("panel.empty")}
+          onClick={onClipClick}
+          onDetail={openDetail}
+        />
         </div>
       </div>
 

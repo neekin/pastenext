@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --experimental-strip-types scripts/test-license-phase.mjs",
+    "test": "node --experimental-strip-types scripts/test-license-phase.mjs && node --experimental-strip-types scripts/test-panel-clips.mjs",
     "license:gen": "node scripts/gen-license.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
