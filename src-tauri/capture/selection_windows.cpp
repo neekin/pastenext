@@ -24,7 +24,8 @@ static HGDIOBJ oldBitmap=nullptr;
 static int mode=0, monitorIndex=0, hoverIndex=-1, drag=-1;
 static POINT start{};
 static RECT original{};
-static bool english=false, finished=false, video=false;
+static bool english=false, finished=false, video=false, tracing=false;
+static void trace(const char* stage){if(tracing)std::cerr<<"[capture-selector] "<<stage<<std::endl;}
 static std::string output="{\"cancelled\":true}";
 static HFONT font=nullptr;
 static std::vector<HFONT> fonts;
@@ -123,6 +124,8 @@ static LRESULT CALLBACK clickProcedure(HWND hwnd,UINT msg,WPARAM key,LPARAM data
     if(msg==WM_DESTROY){PostQuitMessage(0);return 0;}return DefWindowProcW(hwnd,msg,key,data);
 }
 int wmain(int argc,wchar_t** argv){
+    for(int i=1;i<argc;++i)if(std::wstring(argv[i])==L"--trace")tracing=true;
+    trace("start");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     for(int i=1;i+1<argc;++i){std::wstring a=argv[i];if(a==L"--mode")mode=std::wstring(argv[i+1])==L"window"?1:std::wstring(argv[i+1])==L"screen"?2:0;if(a==L"--locale")english=std::wstring(argv[i+1])==L"en";if(a==L"--video")video=std::wstring(argv[i+1])==L"1";}
     if(argc>1&&std::wstring(argv[1])==L"--beep"){MessageBeep(MB_OK);return 0;}
@@ -133,13 +136,13 @@ int wmain(int argc,wchar_t** argv){
     }else{
         desktop={GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};desktop.right=desktop.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);desktop.bottom=desktop.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
         int w=desktop.right-desktop.left,h=desktop.bottom-desktop.top;if(w<=0||h<=0||static_cast<long long>(w)*h>128000000){std::cerr<<"Display dimensions are unsupported";return 1;}
-        EnumDisplayMonitors(nullptr,nullptr,enumerateMonitor,0);if(monitors.empty())return 1;std::stable_sort(monitors.begin(),monitors.end(),[](const Monitor&a,const Monitor&b){return a.primary&&!b.primary;});EnumWindows(enumerate,0);
-        HDC screen=GetDC(nullptr);snapshot=CreateCompatibleDC(screen);bitmap=CreateCompatibleBitmap(screen,w,h);oldBitmap=SelectObject(snapshot,bitmap);BitBlt(snapshot,0,0,w,h,screen,desktop.left,desktop.top,SRCCOPY|CAPTUREBLT);shadedSnapshot=CreateCompatibleDC(screen);shadedBitmap=CreateCompatibleBitmap(screen,w,h);oldShaded=SelectObject(shadedSnapshot,shadedBitmap);BitBlt(shadedSnapshot,0,0,w,h,snapshot,0,0,SRCCOPY);
+        trace("enumerate monitors");EnumDisplayMonitors(nullptr,nullptr,enumerateMonitor,0);if(monitors.empty())return 1;std::stable_sort(monitors.begin(),monitors.end(),[](const Monitor&a,const Monitor&b){return a.primary&&!b.primary;});trace("enumerate windows");EnumWindows(enumerate,0);trace("windows enumerated");
+        trace("snapshot begin");HDC screen=GetDC(nullptr);snapshot=CreateCompatibleDC(screen);bitmap=CreateCompatibleBitmap(screen,w,h);oldBitmap=SelectObject(snapshot,bitmap);BitBlt(snapshot,0,0,w,h,screen,desktop.left,desktop.top,SRCCOPY|CAPTUREBLT);shadedSnapshot=CreateCompatibleDC(screen);shadedBitmap=CreateCompatibleBitmap(screen,w,h);oldShaded=SelectObject(shadedSnapshot,shadedBitmap);BitBlt(shadedSnapshot,0,0,w,h,snapshot,0,0,SRCCOPY);
         HDC shade=CreateCompatibleDC(screen);HBITMAP black=CreateCompatibleBitmap(screen,1,1);auto old=SelectObject(shade,black);box(shade,{0,0,1,1},RGB(0,0,0));BLENDFUNCTION blend{AC_SRC_OVER,0,153,0};AlphaBlend(shadedSnapshot,0,0,w,h,shade,0,0,1,1,blend);SelectObject(shade,old);DeleteObject(black);DeleteDC(shade);
-        drawing=CreateCompatibleDC(screen);drawingBitmap=CreateCompatibleBitmap(screen,w,h);oldDrawing=SelectObject(drawing,drawingBitmap);ReleaseDC(nullptr,screen);
+        drawing=CreateCompatibleDC(screen);drawingBitmap=CreateCompatibleBitmap(screen,w,h);oldDrawing=SelectObject(drawing,drawingBitmap);ReleaseDC(nullptr,screen);trace("snapshot complete");
         for(const auto& monitor:monitors)fonts.push_back(CreateFontW(-static_cast<int>(std::lround(15*monitor.scale)),0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI"));font=fonts[0];RegisterClassW(&wc);
-        overlay=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,wc.lpszClassName,L"PasteNext Capture Selection",WS_POPUP,desktop.left,desktop.top,w,h,nullptr,nullptr,instance,nullptr);
-        if(!overlay){std::cerr<<"Unable to open selection overlay";return 1;}POINT mouse{};GetCursorPos(&mouse);hover(mouse);ShowWindow(overlay,SW_SHOW);SetForegroundWindow(overlay);SetFocus(overlay);
+        trace("create overlay");overlay=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,wc.lpszClassName,L"PasteNext Capture Selection",WS_POPUP,desktop.left,desktop.top,w,h,nullptr,nullptr,instance,nullptr);
+        if(!overlay){std::cerr<<"Unable to open selection overlay";return 1;}POINT mouse{};GetCursorPos(&mouse);hover(mouse);trace("show overlay");ShowWindow(overlay,SW_SHOW);SetForegroundWindow(overlay);SetFocus(overlay);trace("overlay ready");
         if(argc>1&&std::wstring(argv[1])==L"--self-test"){
             SendMessageW(overlay,WM_KEYDOWN,'2',0);if(mode!=1)return 2;SendMessageW(overlay,WM_KEYDOWN,'3',0);if(mode!=2)return 3;SendMessageW(overlay,WM_KEYDOWN,'1',0);
             SendMessageW(overlay,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(60,60));SendMessageW(overlay,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(240,180));SendMessageW(overlay,WM_LBUTTONUP,0,MAKELPARAM(240,180));

@@ -589,6 +589,8 @@ fn collect_child_output(
             match reader.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[capture engine] {}", String::from_utf8_lossy(&chunk[..n]));
                     output.extend_from_slice(&chunk[..n]);
                     if output.len() > 65536 {
                         output.drain(..output.len() - 65536);
@@ -800,6 +802,8 @@ pub async fn capture_screen(
                     if !helper.is_file(){return Err("原生截图选区工具不可用，请重新安装客户端".into());}
                     let locale=app.state::<Db>().get_setting("locale").unwrap_or_else(||"zh-CN".into());
                     let mut command=Command::new(helper);command.args(["--mode",&options.mode,"--locale",&locale,"--video",if video{"1"}else{"0"}]);
+                    #[cfg(all(target_os="windows",debug_assertions))]
+                    command.arg("--trace");
                     app.state::<CaptureState>().selecting.store(true,Ordering::SeqCst);
                     let output=run_capture_child(&app,command);
                     app.state::<CaptureState>().selecting.store(false,Ordering::SeqCst);
