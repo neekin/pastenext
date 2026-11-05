@@ -27,6 +27,7 @@ static RECT original{};
 static bool english=false, finished=false, video=false;
 static std::string output="{\"cancelled\":true}";
 static HFONT font=nullptr;
+static std::vector<HFONT> fonts;
 static RECT toolbar{}, buttons[5]{};
 static HANDLE recordProcess=nullptr;
 static ULONGLONG lastClick=0;
@@ -57,24 +58,25 @@ static void label(HDC dc,RECT r,const wchar_t* value,COLORREF color=RGB(245,245,
 static std::vector<POINT> handles(RECT r){return {{r.left,r.top},{(r.left+r.right)/2,r.top},{r.right,r.top},{r.left,(r.top+r.bottom)/2},{r.right,(r.top+r.bottom)/2},{r.left,r.bottom},{(r.left+r.right)/2,r.bottom},{r.right,r.bottom}};}
 static void paint(HWND hwnd){
     PAINTSTRUCT ps;HDC dc=BeginPaint(hwnd,&ps);int w=desktop.right-desktop.left,h=desktop.bottom-desktop.top;
+    const double scale=monitors[monitorIndex].scale;auto ui=[scale](int value)->LONG{return static_cast<LONG>(std::lround(value*scale));};font=fonts[monitorIndex];
     HDC buffer=drawing;
     BitBlt(buffer,0,0,w,h,shadedSnapshot,0,0,SRCCOPY);
     RECT r=chosen();if(valid(r)){
         RECT draw=local(r);RECT clipped{};RECT bounds{0,0,w,h};IntersectRect(&clipped,&draw,&bounds);
         BitBlt(buffer,clipped.left,clipped.top,clipped.right-clipped.left,clipped.bottom-clipped.top,snapshot,clipped.left,clipped.top,SRCCOPY);
-        HPEN p=CreatePen(PS_SOLID,2,RGB(157,157,255));HGDIOBJ oldp=SelectObject(buffer,p);HGDIOBJ oldb=SelectObject(buffer,GetStockObject(HOLLOW_BRUSH));Rectangle(buffer,draw.left,draw.top,draw.right,draw.bottom);SelectObject(buffer,oldp);SelectObject(buffer,oldb);DeleteObject(p);
-        if(mode==0)for(auto pt:handles(draw))box(buffer,{pt.x-3,pt.y-3,pt.x+4,pt.y+4},RGB(255,255,255));
-        RECT dim{std::clamp<LONG>(draw.left,8,std::max<LONG>(8,w-188)),std::clamp<LONG>(draw.top-34,8,std::max<LONG>(8,h-36)),0,0};dim.right=dim.left+180;dim.bottom=dim.top+28;box(buffer,dim,RGB(22,24,34),8);
+        HPEN p=CreatePen(PS_SOLID,ui(2),RGB(157,157,255));HGDIOBJ oldp=SelectObject(buffer,p);HGDIOBJ oldb=SelectObject(buffer,GetStockObject(HOLLOW_BRUSH));Rectangle(buffer,draw.left,draw.top,draw.right,draw.bottom);SelectObject(buffer,oldp);SelectObject(buffer,oldb);DeleteObject(p);
+        if(mode==0)for(auto pt:handles(draw))box(buffer,{pt.x-ui(3),pt.y-ui(3),pt.x+ui(4),pt.y+ui(4)},RGB(255,255,255));
+        RECT dim{std::clamp<LONG>(draw.left,ui(8),std::max<LONG>(ui(8),w-ui(188))),std::clamp<LONG>(draw.top-ui(34),ui(8),std::max<LONG>(ui(8),h-ui(36))),0,0};dim.right=dim.left+ui(180);dim.bottom=dim.top+ui(28);box(buffer,dim,RGB(22,24,34),ui(8));
         SelectObject(buffer,font);SetBkMode(buffer,TRANSPARENT);std::wstring size=std::to_wstring(r.right-r.left)+L" × "+std::to_wstring(r.bottom-r.top)+L" px";label(buffer,dim,size.c_str());
     }
     RECT display=local(monitors[monitorIndex].rect);
-    int left=display.left+std::max<LONG>(8,(display.right-display.left-570)/2),top=display.bottom-124;
-    toolbar={left,top,left+570,top+96};box(buffer,toolbar,RGB(28,30,42),16);SelectObject(buffer,font);SetBkMode(buffer,TRANSPARENT);
-    for(int i=0;i<5;++i){int width=i<3?92:i==3?98:112;int x=left+14+(i<3?i*100:300+(i-3)*106);buttons[i]={x,top+12,x+width,top+48};
-        box(buffer,buttons[i],i==mode?RGB(89,85,183):i==4?RGB(91,83,201):RGB(49,52,68),8);
+    int left=display.left+std::max<LONG>(ui(8),(display.right-display.left-ui(570))/2),top=display.bottom-ui(124);
+    toolbar={left,top,left+ui(570),top+ui(96)};box(buffer,toolbar,RGB(28,30,42),ui(16));SelectObject(buffer,font);SetBkMode(buffer,TRANSPARENT);
+    for(int i=0;i<5;++i){int width=ui(i<3?92:i==3?98:112);int x=left+ui(14+(i<3?i*100:300+(i-3)*106));buttons[i]={x,top+ui(12),x+width,top+ui(48)};
+        box(buffer,buttons[i],i==mode?RGB(89,85,183):i==4?RGB(91,83,201):RGB(49,52,68),ui(8));
         const wchar_t* values[]={text(L"区域  1",L"Region  1"),text(L"窗口  2",L"Window  2"),text(L"全屏  3",L"Display  3"),text(L"取消 Esc",L"Cancel Esc"),video?text(L"录制 ↵",L"Record ↵"):text(L"截取 ↵",L"Capture ↵")};label(buffer,buttons[i],values[i],i==4&&!valid(r)?RGB(145,147,164):RGB(255,255,255));
     }
-    RECT hint{left+8,top+57,left+562,top+88};label(buffer,hint,mode==0?text(L"拖动框选或调整边角 · 1/2/3 切换 · 回车截取",L"Drag to select / resize · 1/2/3 switch modes · Enter captures"):mode==1?text(L"移动鼠标选窗口，单击截取 · 1/2/3 切换",L"Point to a window and click · 1/2/3 switch modes"):text(L"单击目标屏幕截取 · 1/2/3 切换 · Esc 取消",L"Click a display · 1/2/3 switch modes · Esc cancels"),RGB(185,188,205));
+    RECT hint{left+ui(8),top+ui(57),left+ui(562),top+ui(88)};label(buffer,hint,mode==0?text(L"拖动框选或调整边角 · 1/2/3 切换 · 回车截取",L"Drag to select / resize · 1/2/3 switch modes · Enter captures"):mode==1?text(L"移动鼠标选窗口，单击截取 · 1/2/3 切换",L"Point to a window and click · 1/2/3 switch modes"):text(L"单击目标屏幕截取 · 1/2/3 切换 · Esc 取消",L"Click a display · 1/2/3 switch modes · Esc cancels"),RGB(185,188,205));
     BitBlt(dc,0,0,w,h,buffer,0,0,SRCCOPY);EndPaint(hwnd,&ps);
 }
 static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM key,LPARAM data){
@@ -88,7 +90,7 @@ static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM key,LPARAM data)
         POINT pt{GET_X_LPARAM(data),GET_Y_LPARAM(data)};for(int i=0;i<5;++i)if(PtInRect(&buttons[i],pt)){if(i<3)switchMode(i);else if(i==3)cancel();else confirm();return 0;}
         POINT p=point(data);hover(p);if(mode!=0){confirm();return 0;}
         start=p;original=region;drag=0;if(valid(region)){
-            auto hs=handles(region);for(int i=0;i<8;++i)if(std::abs(hs[i].x-p.x)<9&&std::abs(hs[i].y-p.y)<9){drag=i+2;break;}
+            auto hs=handles(region);for(int i=0;i<8;++i)if(std::abs(hs[i].x-p.x)<9*monitors[monitorIndex].scale&&std::abs(hs[i].y-p.y)<9*monitors[monitorIndex].scale){drag=i+2;break;}
             if(drag==0&&PtInRect(&region,p))drag=1;
         }if(drag==0)region={};SetCapture(hwnd);InvalidateRect(hwnd,nullptr,FALSE);return 0;}
     case WM_MOUSEMOVE:{
@@ -135,7 +137,7 @@ int wmain(int argc,wchar_t** argv){
         HDC screen=GetDC(nullptr);snapshot=CreateCompatibleDC(screen);bitmap=CreateCompatibleBitmap(screen,w,h);oldBitmap=SelectObject(snapshot,bitmap);BitBlt(snapshot,0,0,w,h,screen,desktop.left,desktop.top,SRCCOPY|CAPTUREBLT);shadedSnapshot=CreateCompatibleDC(screen);shadedBitmap=CreateCompatibleBitmap(screen,w,h);oldShaded=SelectObject(shadedSnapshot,shadedBitmap);BitBlt(shadedSnapshot,0,0,w,h,snapshot,0,0,SRCCOPY);
         HDC shade=CreateCompatibleDC(screen);HBITMAP black=CreateCompatibleBitmap(screen,1,1);auto old=SelectObject(shade,black);box(shade,{0,0,1,1},RGB(0,0,0));BLENDFUNCTION blend{AC_SRC_OVER,0,153,0};AlphaBlend(shadedSnapshot,0,0,w,h,shade,0,0,1,1,blend);SelectObject(shade,old);DeleteObject(black);DeleteDC(shade);
         drawing=CreateCompatibleDC(screen);drawingBitmap=CreateCompatibleBitmap(screen,w,h);oldDrawing=SelectObject(drawing,drawingBitmap);ReleaseDC(nullptr,screen);
-        font=CreateFontW(-15,0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");RegisterClassW(&wc);
+        for(const auto& monitor:monitors)fonts.push_back(CreateFontW(-static_cast<int>(std::lround(15*monitor.scale)),0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI"));font=fonts[0];RegisterClassW(&wc);
         overlay=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,wc.lpszClassName,L"PasteNext Capture Selection",WS_POPUP,desktop.left,desktop.top,w,h,nullptr,nullptr,instance,nullptr);
         if(!overlay){std::cerr<<"Unable to open selection overlay";return 1;}POINT mouse{};GetCursorPos(&mouse);hover(mouse);ShowWindow(overlay,SW_SHOW);SetForegroundWindow(overlay);SetFocus(overlay);
         if(argc>1&&std::wstring(argv[1])==L"--self-test"){
@@ -151,6 +153,6 @@ int wmain(int argc,wchar_t** argv){
     MSG message;while(GetMessageW(&message,nullptr,0,0)>0){TranslateMessage(&message);DispatchMessageW(&message);}
     if(recordProcess){CloseHandle(recordProcess);return 0;}
     if(drawing){SelectObject(drawing,oldDrawing);DeleteObject(drawingBitmap);DeleteDC(drawing);}if(shadedSnapshot){SelectObject(shadedSnapshot,oldShaded);DeleteObject(shadedBitmap);DeleteDC(shadedSnapshot);}
-    if(snapshot){SelectObject(snapshot,oldBitmap);DeleteObject(bitmap);DeleteDC(snapshot);}if(font)DeleteObject(font);
+    if(snapshot){SelectObject(snapshot,oldBitmap);DeleteObject(bitmap);DeleteDC(snapshot);}for(auto f:fonts)if(f)DeleteObject(f);
     std::cout<<output<<std::endl;return 0;
 }

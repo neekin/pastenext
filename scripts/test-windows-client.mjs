@@ -34,7 +34,7 @@ try{
  const upload=await fetch(url+'upload',{method:'POST',body:bytes,headers:{'Content-Type':'image/png','Origin':new URL(url).origin}});report.upload=upload.ok;
  await invoke('transfer_stop');await pause(150);try{await fetch(url);report.revoked=false;}catch{report.revoked=true;}
  if(!report.download||!report.upload||!report.revoked)throw Error('Installed LAN transfer checks failed');
- report.bundle=await evaluate('window.__TAURI_INTERNALS__.metadata.currentWindow.label');
+ report.bundle=await invoke('plugin:app|identifier');if(report.bundle!=='io.pastenext.preview')throw Error('Expected an isolated Preview application');
  report.ok=true;console.log(JSON.stringify(report));
 }catch(e){report.ok=false;report.error=String(e);console.error(report.error);process.exitCode=1;}
 finally{await fs.writeFile(path.join(reportDir,'native-client-report.json'),JSON.stringify(report,null,2));socket.close();}
