@@ -26,7 +26,7 @@ def run(args, **kwargs):
 
 def package(target):
     repo = Path(__file__).resolve().parents[1]
-    version = json.loads((repo / "src-tauri/tauri.conf.json").read_text())["version"]
+    version = json.loads((repo / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"]
     arch = "arm64" if target.startswith("aarch64-") else "x86_64"
     bundle = repo / "src-tauri/target" / target / "release/bundle"
     app = bundle / "macos/PasteNext.app"
