@@ -53,5 +53,5 @@
 - GIF 导出最长 120 秒，默认 10 FPS、最大边 960 或 640 像素。当前录屏不提供音轨录制选项。
 - 图片传输支持 PNG、JPEG、GIF、BMP、TIFF，按静态图片归一化；不包含 HEIC、远程云中转、跨公网或手机视频上传。
 - 手机尺寸浏览器验证被工具以 `ERR_BLOCKED_BY_CLIENT` 拦截；协议与原生端通过测试，真实手机和不同 Wi-Fi / 防火墙环境尚未验证。临时测试工作区已按用户要求关闭。
-- Windows 使用原生 Win32 选区及随包分发的 FFmpeg LGPL 引擎，已通过 Windows 构建与媒体功能测试；详见 `platform-parity.md`。Linux 引擎尚未接入。
-- 此次是固定本地签名的预览客户端，未替换正式版，未发布远程版本。自签名不是 Apple Developer ID 或公证。
+- Windows 使用原生 Win32 选区及随包分发的 FFmpeg LGPL 引擎，已通过 29 项 Rust 测试、安装后快捷键截图与录屏、视频播放、OCR 和局域网传输验证；详见 `platform-parity.md`。Linux 引擎尚未接入。
+- 新功能以预览客户端交付，源码和官网已同步远程；正式版下载仍为 v1.0.26。macOS 预览版使用固定本地签名，该签名不是 Apple Developer ID 或公证。

@@ -86,5 +86,75 @@
     "rustTestsPassed": 26,
     "intelExporterCrossCompilation": "passed; execution on Intel not tested",
     "phoneBrowser": "blocked by ERR_BLOCKED_BY_CLIENT; temporary workspace closed"
+  },
+  "platform-parity-validation": {
+    "date": "2026-11-06",
+    "shortcuts": {
+      "macOS": "Command+Shift+A / R / G",
+      "Windows": "Ctrl+Shift+A / R / G"
+    },
+    "selection": {
+      "outsideShadeAlpha": 0.6,
+      "modes": [
+        "region",
+        "window",
+        "screen"
+      ],
+      "toolbarSwitching": true,
+      "keyboardSwitching": "1 / 2 / 3, Space, Tab",
+      "moveAndResize": true
+    },
+    "macOS": {
+      "rustTestsPassed": 27,
+      "nativeAppKitInteractionAndRenderedMaskTests": true,
+      "preview": "~/Applications/PasteNext Preview.app",
+      "profile": "release (optimized)",
+      "existingFixedSigningIdentity": true
+    },
+    "Windows": {
+      "rustTestsPassed": 29,
+      "nativeSelectorMessagesPassed": true,
+      "workflowRun": "https://github.com/neekin/pastenext/actions/runs/42096845051",
+      "testedCodeCommit": "db70cc392522a3cd7ac882dce2f3957edbd2a939",
+      "installedClient": {
+        "stage": "complete",
+        "nativeScreenshot": {
+          "id": "3bf1482c72295551817ab9736f7b4975",
+          "kind": "image",
+          "name": "截图",
+          "width": 180,
+          "height": 120,
+          "createdAt": 1793908140424,
+          "clipId": 1
+        },
+        "recording": {
+          "saved": true,
+          "extension": ".mp4"
+        },
+        "videoPlayback": {
+          "ready": 4,
+          "width": 1024,
+          "height": 768
+        },
+        "ocr": {
+          "available": true,
+          "recognizedTestText": true
+        },
+        "download": true,
+        "upload": true,
+        "revoked": true,
+        "bundle": "io.pastenext.preview",
+        "ok": true
+      },
+      "cleanPreviewInstaller": true,
+      "profile": "debug; production frontend assets; test inspector removed"
+    },
+    "website": {
+      "url": "https://neekin.github.io/pastenext/#capture",
+      "deploymentRun": "https://github.com/neekin/pastenext/actions/runs/42085636928",
+      "nativeFeaturesLabeledDevelopmentPreview": true,
+      "stableDownloadVersion": "1.0.26",
+      "mobileLayout390pxNoOverflow": true
+    }
   }
 }

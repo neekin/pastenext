@@ -22,6 +22,7 @@ Before building on Windows, run `python scripts/setup-windows-media.py` to prepa
 - **Boards** — organize frequently used snippets into boards: create, rename, delete and move items
 - **Edit / notes / tags** — edit clip content, attach notes and tags so useful fragments are easy to keep
 - **Auto-paste** — selecting an item writes it back to the clipboard and synthesizes `Cmd/Ctrl+V` into the target app
+- **Offline image OCR** — macOS Vision and Windows WinRT recognize text for copying and search. Windows recognition languages depend on installed system OCR language packs.
 - **Sensitive app exclusions** — copies made inside password managers and other apps you list (matched by app name / bundle ID) are never recorded
 - **Multiple languages** — Simplified Chinese and English, switchable from Settings (the tray menu follows)
 - **System integration** — menu bar / system tray, launch at login, system-following dark mode, custom global shortcut, retention limits
@@ -95,7 +96,7 @@ Download them from the Artifacts section of the corresponding run (PasteNext-mac
 
 - [ ] Cross-device sync (WebDAV / cloud drives)
 - [ ] Rich-text WYSIWYG preview and rendering
-- [ ] OCR text extraction from images
+- [x] Offline image OCR (macOS Vision / Windows WinRT)
 
 ## Documents
 

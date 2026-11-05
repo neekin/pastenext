@@ -12,7 +12,7 @@ import zipfile
 URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-05-12-48/ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-8.1.zip'
 SHA256 = 'aeea3020a16e8d37aeac67df9ce3cdbf93b79f5ea96eddd26f4a79ba8154cc86'
 ROOT = Path(__file__).resolve().parents[1] / 'src-tauri' / 'ffmpeg'
-CACHE = Path(tempfile.gettempdir()) / ('pastenext-ffmpeg-' + SHA256[:16] + '.zip')
+CACHE = Path(os.environ.get('PASTENEXT_MEDIA_CACHE_DIR', tempfile.gettempdir())) / ('pastenext-ffmpeg-' + SHA256[:16] + '.zip')
 
 def digest(path):
     result = hashlib.sha256()

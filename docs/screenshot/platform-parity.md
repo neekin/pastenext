@@ -32,9 +32,14 @@ rebuilt with the existing fixed signing identity.
 
 Windows: `capture-check` workflow builds on windows-latest, runs Rust tests including
 real GDI capture, graceful recording stop and MP4/MOV/GIF output verification,
-drives Win32 selection messages, and builds the NSIS client. Native capture/media tests, selector messages and the full Windows installer build
-passed in run 42084211467. A separate Preview identifier keeps test installations
-from replacing the stable application or using its data directory.
+drives Win32 selection messages, and builds the NSIS client. Run
+[42096845051](https://github.com/neekin/pastenext/actions/runs/42096845051)
+passed all 29 Rust tests and the installed-client smoke test: real OS screenshot
+and recording shortcuts, 180×120 region capture, MP4 stop/save, embedded 1024×768
+video playback, offline OCR of the fixture text, LAN download/upload and revocation.
+A separate Preview identifier and executable name keep test installations from
+replacing the stable application or using its data directory. The downloadable
+Preview installer is rebuilt without the test-only WebView debugging port.
 
 Website: existing GitHub Pages Actions deploys `site/` from main. New features are
 marked development preview because the stable download buttons still point to

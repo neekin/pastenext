@@ -25,9 +25,11 @@ jobs:
           cache-on-failure: true
       - uses: actions/cache@v4
         with:
-          path: src-tauri/ffmpeg
+          path: ${{ runner.temp }}/pastenext-ffmpeg-*.zip
           key: windows-media-${{ hashFiles('scripts/setup-windows-media.py') }}
       - name: Prepare packaged Windows media runtime
+        env:
+          PASTENEXT_MEDIA_CACHE_DIR: ${{ runner.temp }}
         run: python scripts/setup-windows-media.py
       - name: Frontend
         run: |
