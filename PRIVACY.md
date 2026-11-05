@@ -1,6 +1,6 @@
 # 隐私政策 / Privacy Policy
 
-**生效日期 / Effective date:** 2026-08-31
+**生效日期 / Effective date:** 2026-11-06
 **适用产品 / Applies to:** PasteNext（macOS / Windows 桌面应用）
 
 > 如果你更习惯阅读英文，请直接跳到下半部分 [English](#english)。
@@ -11,7 +11,7 @@
 
 ### 1. 一句话总结
 
-PasteNext **不收集、不上传、不共享**你的任何数据。你复制过的所有内容都只保存在你自己的电脑里。
+PasteNext 不向开发者收集或上传你的剪贴板、截图、录屏。历史和媒体保存在本机。只有你主动开启扫码传图时，选定文件才会通过局域网传给持有本次链接的设备；你也可以从手机上传图片到本机。
 
 ### 2. 我们收集什么
 
@@ -19,8 +19,9 @@ PasteNext **不收集、不上传、不共享**你的任何数据。你复制过
 
 - 没有账号系统，不需要注册或登录；
 - 不包含任何分析、遥测、崩溃上报或广告 SDK；
-- 不向任何服务器发送数据（应用内没有任何网络请求）；
-- 不读取剪贴板以外的数据。
+- 不把剪贴板、截图或录屏发送到开发者服务器；
+- 在你主动截图、录屏或导入图片时，读取所选屏幕、窗口或文件；
+- 在你开启扫码传图后，临时提供局域网 HTTP 服务，供下载选定文件及上传图片；链接最长 10 分钟有效，停止分享、关闭工作台或退出应用后停止该会话。局域网 HTTP 传输不加密，请使用可信网络。
 
 ### 3. 数据存储在哪里
 
@@ -29,16 +30,18 @@ PasteNext **不收集、不上传、不共享**你的任何数据。你复制过
 - macOS：`~/Library/Application Support/io.pastenext.app/`
 - Windows：`%APPDATA%\io.pastenext.app\`
 
-图片文件同样保存在该目录下。卸载应用并删除该目录即可彻底清除全部数据。
+图片和录屏文件同样保存在该目录的媒体子目录下。Windows 便携版则使用程序旁的 `Data/` 目录。卸载应用并删除该目录即可彻底清除全部数据。
 
 ### 4. 需要哪些系统权限
 
 | 平台 | 权限 | 用途 | 是否必须 |
 |---|---|---|---|
 | macOS | 辅助功能（Accessibility） | 在你选中条目后，合成 `Cmd+V` 把内容自动粘贴到当前应用 | 否，未授权时仍可手动 `Cmd+V` |
-| Windows | 无特殊权限 | 通过 `SendInput` 模拟粘贴 | — |
+| macOS | 屏幕录制 | 截取所选屏幕 / 窗口、录制屏幕 | 仅截图 / 录屏需要 |
+| macOS / Windows | 本地网络 / 防火墙放行 | 同一网络内与手机交换选定文件 | 仅扫码传图需要 |
+| Windows | 无管理员权限要求 | 普通桌面截图、录屏，以及通过 `SendInput` 模拟粘贴 | — |
 
-你可以随时在系统设置中撤销这些权限，撤销后 PasteNext 仅失去"自动粘贴"能力，其余功能不受影响。
+你可以随时在系统设置中撤销这些权限，撤销辅助功能后自动粘贴不可用；撤销屏幕录制或本地网络权限后，对应的截图 / 录屏或扫码传图功能不可用。
 
 ### 5. 敏感内容保护
 
@@ -54,7 +57,7 @@ PasteNext 不面向 13 岁以下儿童，也不会有意收集任何儿童的个
 
 ### 7. 第三方组件
 
-应用基于 Tauri、React、SQLite 等开源组件构建，这些组件同样不会向第三方发送数据。完整清单见项目仓库的 `README.md` 与设置页"关于"区域。
+应用基于 Tauri、React、SQLite 等开源组件构建。Windows 媒体处理使用随应用分发的 FFmpeg LGPL 构建，作为本地子进程运行；媒体处理不需要上传文件。完整清单见项目仓库的 `README.md` 与设置页"关于"区域。
 
 ### 8. 政策更新
 
@@ -72,7 +75,7 @@ PasteNext 不面向 13 岁以下儿童，也不会有意收集任何儿童的个
 
 ### 1. Short version
 
-PasteNext **does not collect, upload, or share any of your data.** Everything you copy stays on your own computer.
+PasteNext does not send your clipboard, screenshots or recordings to the developer. History and media are stored locally. When you explicitly start a QR transfer session, the selected file can be downloaded by devices holding that session link on your local network. You may also upload phone images to your desktop.
 
 ### 2. What we collect
 
@@ -80,8 +83,9 @@ PasteNext **does not collect, upload, or share any of your data.** Everything yo
 
 - has no accounts, sign-up, or login;
 - contains no analytics, telemetry, crash reporting, or advertising SDKs;
-- sends no data to any server (the app makes no network requests);
-- reads nothing other than the system clipboard.
+- does not send clipboard or media content to developer servers;
+- reads the screen, window or file you select when you start capture, recording or image import;
+- temporarily starts a local HTTP server when you enable QR transfers. It exposes only the selected download and accepts image uploads. Sessions expire after 10 minutes and stop when you stop sharing, close the studio or exit the app. Local HTTP transfers are not encrypted; use a trusted network.
 
 ### 3. Where your data is stored
 
@@ -90,16 +94,18 @@ Clipboard items (text, rich text, images, file paths) are stored in a local SQLi
 - macOS: `~/Library/Application Support/io.pastenext.app/`
 - Windows: `%APPDATA%\io.pastenext.app\`
 
-Images are stored in the same directory. Uninstalling the app and deleting that folder removes all data permanently.
+Images and recordings are stored in media subdirectories. Windows portable builds use a `Data/` folder next to the executable. Uninstalling the app and deleting that folder removes all data permanently.
 
 ### 4. System permissions
 
 | Platform | Permission | Purpose | Required |
 |---|---|---|---|
 | macOS | Accessibility | Synthesize `Cmd+V` to auto-paste the selected item into the frontmost app | No — manual `Cmd+V` still works |
-| Windows | None | Paste is simulated via `SendInput` | — |
+| macOS | Screen Recording | Capture selected displays or windows and record the screen | Only for capture / recording |
+| macOS / Windows | Local network / firewall access | Transfer selected files to and from a phone on the same network | Only for QR transfers |
+| Windows | No administrator access required | Capture the normal desktop, record the screen and simulate paste with `SendInput` | — |
 
-You can revoke these permissions at any time. Doing so only disables auto-paste; every other feature keeps working.
+You can revoke these permissions at any time. Revoking Accessibility disables auto-paste. Revoking Screen Recording or local network access disables the corresponding capture / recording or phone transfer features.
 
 ### 5. Protecting sensitive content
 
@@ -115,7 +121,7 @@ PasteNext is not directed at children under 13, and we do not knowingly collect 
 
 ### 7. Third-party components
 
-The app is built on open-source components such as Tauri, React, and SQLite. None of them transmit data to third parties. See `README.md` and the About section in Settings for the full list.
+The app uses open-source components including Tauri, React and SQLite. Windows media processing uses a packaged LGPL build of FFmpeg as a local child process; processing does not require file uploads. See `README.md` and the About section in Settings for the full list.
 
 ### 8. Changes to this policy
 
