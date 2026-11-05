@@ -1116,6 +1116,20 @@ pub fn open_screen_permission_settings() -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn validates_native_selection_coordinates_and_window_identity() {
+        let mut selected:NativeSelection=serde_json::from_value(serde_json::json!({"mode":"region","display":2,"rect":{"x":-1440,"y":-900,"width":500,"height":300}})).unwrap();
+        assert!(selected.validate().is_ok());
+        selected.mode = Some("window".into());
+        assert!(selected.validate().is_err());
+        selected.window_id = Some(42);
+        assert!(selected.validate().is_ok());
+        selected.rect.as_mut().unwrap().width = f64::NAN;
+        assert!(selected.validate().is_err());
+        let cancelled: NativeSelection =
+            serde_json::from_value(serde_json::json!({"cancelled":true})).unwrap();
+        assert!(cancelled.validate().is_ok());
+    }
+    #[test]
     fn rejects_non_image_and_oversized_dimensions() {
         assert!(decode_image(b"not an image").is_err());
     }

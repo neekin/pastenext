@@ -56,7 +56,8 @@ final class SelectionView: NSView {
     }
     override func draw(_ dirtyRect: NSRect) {
         // Clear first: a transparent window must restore the old hole as it moves.
-        NSColor.clear.setFill();bounds.fill(using:.copy)
+        // Keep the clear hole hit-testable so dragging inside it cannot reach another app.
+        NSColor.black.withAlphaComponent(0.01).setFill();bounds.fill(using:.copy)
         let mask=NSBezierPath(rect:bounds)
         if let selected=localSelection {mask.appendRect(selected)}
         mask.windingRule = .evenOdd

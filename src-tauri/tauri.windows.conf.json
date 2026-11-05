@@ -1,1 +1,1 @@
-{"bundle":{"resources":["capture_selector.exe","ffmpeg/**"]}}
+{"bundle":{"resources":["capture_selector.exe","ffmpeg/*"]}}
