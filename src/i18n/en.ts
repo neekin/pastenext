@@ -1,4 +1,5 @@
 export const en = {
+  "panel.capture": "Capture",
   "app.name": "PasteNext",
   "app.settings": "Settings",
 

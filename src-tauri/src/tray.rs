@@ -56,6 +56,10 @@ pub fn build_tray_menu(
     let activate =
         MenuItem::with_id(app, "activate", i18n::tr(&locale, Key::Activate), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", i18n::tr(&locale, Key::Quit), true, None::<&str>)?;
+    let en=locale=="en";
+    let capture=MenuItem::with_id(app,"capture",if en{"Take screenshot"}else{"截图"},true,None::<&str>)?;
+    let record=MenuItem::with_id(app,"record",if en{"Start / stop recording"}else{"开始 / 结束录屏"},true,None::<&str>)?;
+    let studio=MenuItem::with_id(app,"studio",if en{"Capture studio / phone transfer…"}else{"截图工作台 / 手机传图…"},true,None::<&str>)?;
 
     #[cfg(target_os = "macos")]
     let accessibility = MenuItem::with_id(
@@ -76,7 +80,7 @@ pub fn build_tray_menu(
     #[cfg(target_os = "macos")]
     let ax_granted = crate::platform::is_accessibility_trusted();
 
-    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&show, &settings];
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&show, &capture, &record, &studio, &settings];
     #[cfg(target_os = "macos")]
     if !ax_granted {
         items.push(&accessibility);
@@ -146,6 +150,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
         .show_menu_on_left_click(left_menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => show_panel(app),
+            "capture"=>crate::capture::launch(app,false),
+            "record"=>crate::capture::launch(app,true),
+            "studio"=>{let _=crate::capture::show_capture_studio(app.clone());},
             "settings" | "activate" => open_settings(app),
             "accessibility" => crate::platform::open_accessibility_settings(),
             "quit" => app.exit(0),

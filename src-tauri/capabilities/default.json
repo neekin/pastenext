@@ -1,6 +1,12 @@
 {
   "identifier": "default",
   "description": "Default capability for all app windows",
-  "windows": ["panel", "settings"],
-  "permissions": ["core:default"]
+  "windows": [
+    "panel",
+    "settings",
+    "studio"
+  ],
+  "permissions": [
+    "core:default"
+  ]
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>NSLocalNetworkUsageDescription</key><string>PasteNext 使用本地网络，在你开启扫码传图时与手机直接传输图片和录屏。</string>
+</dict></plist>

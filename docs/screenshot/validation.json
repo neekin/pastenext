@@ -1,0 +1,90 @@
+{
+  "native-results": {
+    "editorLoaded": true,
+    "page": true,
+    "download": true,
+    "foreignOriginRejected": true,
+    "invalidImageRejected": true,
+    "oversizeRejected": true,
+    "upload": true,
+    "received": true
+  },
+  "native-new-results": {
+    "permission": true,
+    "hotkeyErrors": {},
+    "hotkeyConflict": true,
+    "captureHotkey": "Control+Shift+A",
+    "ocr": "PasteNext native test\nScreenshot 12345",
+    "pinCreated": true,
+    "standardSize": [
+      2560,
+      1440
+    ],
+    "jpegSignature": true,
+    "recordStop": {
+      "savedVideo": true
+    },
+    "revoked": true,
+    "statusAfter": {
+      "busy": false,
+      "recording": false
+    }
+  },
+  "stitch-playback-results": {
+    "stitch": {
+      "overlap": [
+        120
+      ],
+      "width": 120,
+      "height": 480
+    },
+    "playback": [
+      {
+        "readyState": 4,
+        "duration": 3.4816666666666665,
+        "width": 4096,
+        "height": 2304
+      }
+    ],
+    "layoutOverflow": false
+  },
+  "conversion-results": {
+    "mp4": {
+      "exit": 0,
+      "size": 2631,
+      "message": "ok\n"
+    },
+    "mov": {
+      "exit": 0,
+      "size": 2763,
+      "message": "ok\n"
+    },
+    "gif": {
+      "exit": 0,
+      "size": 11571,
+      "message": "ok\n"
+    }
+  },
+  "native-cancel": {
+    "result": {
+      "result": null
+    },
+    "noNewMedia": true,
+    "state": {
+      "busy": false,
+      "recording": false
+    }
+  },
+  "delivery": {
+    "platform": "macOS Apple Silicon",
+    "profile": "release (optimized)",
+    "application": "~/Applications/PasteNext Preview.app",
+    "bundleIdentifier": "io.pastenext.preview",
+    "signingCertificateSHA1": "8354B309E96DCC10F7AA8E956120F4FBA4988DEF",
+    "deepStrictCodeSignVerification": true,
+    "productionAssetsWithoutQAHarness": true,
+    "rustTestsPassed": 26,
+    "intelExporterCrossCompilation": "passed; execution on Intel not tested",
+    "phoneBrowser": "blocked by ERR_BLOCKED_BY_CLIENT; temporary workspace closed"
+  }
+}

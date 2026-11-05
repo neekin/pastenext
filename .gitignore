@@ -18,3 +18,12 @@ keygen-web/
 
 # OCR 辅助二进制:由 build.rs 从 ocr/ocr.swift 编译,不进仓库
 src-tauri/ocr_helper
+
+# Native media conversion helper
+src-tauri/media_export
+
+# Native screenshot selection helper
+src-tauri/capture_selector
+src-tauri/capture_selector.exe
+src-tauri/*.obj
+src-tauri/ffmpeg/

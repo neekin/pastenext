@@ -35,13 +35,26 @@
         "visible": false,
         "resizable": true,
         "url": "settings.html"
+      },
+      {
+        "label": "studio",
+        "title": "PasteNext · 截图工作台",
+        "width": 1160,
+        "height": 780,
+        "minWidth": 900,
+        "minHeight": 620,
+        "visible": false,
+        "resizable": true,
+        "url": "studio.html"
       }
     ],
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": [
+          "$APPDATA/**"
+        ]
       }
     }
   },

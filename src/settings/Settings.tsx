@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, checkUpdate, type UpdateInfo } from "../api";
@@ -92,7 +93,7 @@ function acceleratorFromEvent(e: KeyboardEvent): string | null {
 }
 
 /** 点击进入录制态,下一次按键即记录为该全局快捷键并立即保存。 */
-function HotkeyRecorder({
+export function HotkeyRecorder({
   value,
   defaultValue,
   onSave,
@@ -130,7 +131,7 @@ function HotkeyRecorder({
       setMsg("");
       onSave(acc)
         .then(() => setMsg(t("settings.hotkey.saved")))
-        .catch((err) => setMsg(t("settings.hotkey.error", { message: String(err) })));
+        .catch((err) => { setDisplay(value); setMsg(t("settings.hotkey.error", { message: String(err) })); });
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -658,6 +659,7 @@ export default function Settings() {
             <span className={lbl}>{t("settings.hotkey")}</span>
             <HotkeyRecorder value={hotkey} defaultValue={DEFAULT_HOTKEY} onSave={saveHotkey} />
           </div>
+          <div className={row}><span className={lbl}>{t("panel.capture")}</span><button className="h-8 px-3 rounded-lg bg-indigo-500 text-white text-xs" onClick={() => invoke("show_capture_studio").catch(e => console.error(e))}>{t("panel.capture")}</button></div>
         </Section>
 
         <Section title={t("settings.excludedApps")}>

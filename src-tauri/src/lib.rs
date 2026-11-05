@@ -9,6 +9,11 @@ mod monitor;
 mod ocr;
 mod platform;
 mod paste;
+mod capture;
+#[cfg(target_os="windows")]
+mod media_windows;
+mod stitch;
+mod transfer;
 mod sensitive;
 mod tray;
 mod util;
@@ -292,6 +297,11 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
+                        let capture_kind = app.try_state::<capture::CaptureHotkeys>().and_then(|s|s.0.lock().ok()?.iter().find(|(_,key)|*key==shortcut).map(|(kind,_)|kind.clone()));
+                        if let Some(kind)=capture_kind {
+                            if kind=="scroll" {let _=capture::show_capture_studio(app.clone());let _=app.emit("studio-tab","long");}
+                            else {capture::launch(app,kind=="record");}return;
+                        }
                         // 1) 面板主热键
                         let is_current = app
                             .try_state::<HotkeyState>()
@@ -315,6 +325,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = portable::resolve_data_dir(app.handle());
             std::fs::create_dir_all(&dir)?;
@@ -374,6 +385,11 @@ pub fn run() {
             app.manage(PanelIntent(Mutex::new(false)));
             app.manage(PanelAnimation::default());
             app.manage(paste::PasteState::default());
+            app.manage(capture::CaptureState::default());
+            app.manage(capture::CaptureHotkeys::default());
+            app.manage(capture::CaptureHotkeyErrors::default());
+            capture::register_hotkeys(app.handle());
+            app.manage(transfer::TransferState::default());
             app.manage(commands::PasteQueueState(Mutex::new(None)));
             app.manage(PanelGeometry(Mutex::new(None)));
 
@@ -432,9 +448,43 @@ pub fn run() {
                     }
                 });
             }
+            if let Some(studio) = app.get_webview_window("studio") {
+                let w = studio.clone();
+                studio.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        transfer::transfer_stop(w.app_handle().clone());
+                        let _ = w.hide();
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            capture::show_capture_studio,
+            capture::capture_choose_folder,
+            capture::capture_permissions,
+            capture::request_capture_permission,
+            capture::set_capture_hotkey,
+            capture::capture_hotkey_errors,
+            capture::capture_screen,
+            capture::stop_capture,
+            capture::capture_status,
+            capture::media_list,
+            stitch::media_stitch_analyze,
+            stitch::media_stitch,
+            capture::media_get,
+            capture::media_pin,
+            capture::media_commit_image,
+            capture::media_import,
+            capture::media_copy,
+            capture::media_ocr,
+            capture::media_export,
+            capture::open_screen_permission_settings,
+            transfer::transfer_start,
+            transfer::transfer_address,
+            transfer::transfer_stop,
+            transfer::transfer_status,
             commands::list_clips,
             commands::get_clip,
             commands::read_image_base64,
@@ -492,6 +542,12 @@ pub fn run() {
             commands::show_settings,
             commands::open_url,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app,event| {
+            if matches!(event,tauri::RunEvent::Exit) {
+                transfer::transfer_stop(app.clone());
+                let _=capture::stop_capture(app.clone(),true);
+            }
+        });
 }

@@ -549,17 +549,13 @@ pub fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
         .parse()
         .map_err(|e| format!("无法解析快捷键「{accelerator}」: {e}"))?;
     let gs = app.global_shortcut();
-    let old = app.state::<HotkeyState>().0.lock().unwrap().take();
-    if let Some(old) = old {
-        let _ = gs.unregister(old);
-    }
+    if app.state::<crate::capture::CaptureHotkeys>().0.lock().unwrap().values().any(|key|key==&new_sc) {return Err("此快捷键已用于截图或录屏".into());}
+    let old = app.state::<HotkeyState>().0.lock().unwrap().clone();
+    if old.as_ref()==Some(&new_sc){return Ok(());}
     if let Err(e) = gs.register(new_sc.clone()) {
-        // 注册失败则回退到旧快捷键
-        if let Some(old) = old {
-            let _ = gs.register(old);
-        }
         return Err(format!("注册失败(可能被其他应用占用): {e}"));
     }
+    if let Some(old)=old {let _=gs.unregister(old);}
     *app.state::<HotkeyState>().0.lock().unwrap() = Some(new_sc);
     app.state::<Db>().set_setting("hotkey", accelerator.trim());
     Ok(())

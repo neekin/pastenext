@@ -1,22 +1,27 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import Panel from "./panel/Panel";
 import Settings from "./settings/Settings";
 import { api, onSettingsChanged } from "./api";
 import { applyTheme } from "./theme";
 import { useI18n, type Locale } from "./i18n";
 
+const PinnedImage = lazy(() => import("./capture/PinnedImage"));
+const Studio = lazy(() => import("./capture/Studio"));
+
 export default function App() {
   // 双入口:index.html → 面板,settings.html → 设置窗口
+  const isPin = window.location.pathname.endsWith("pin.html");
+  const isStudio = window.location.pathname.endsWith("studio.html");
   const isSettings = window.location.pathname.endsWith("settings.html");
   const { setLocale } = useI18n();
 
   // 启动后台回填来源图标:老数据只有应用名,按名反查图标写回 DB。
   // fire-and-forget;有补齐时 Rust 端广播 clips-updated,列表自动刷新。
   useEffect(() => {
-    if (isSettings) return;
+    if (isSettings || isStudio || isPin) return;
     api.backfillSourceAppKeys().catch(() => {});
     // App 单例常驻,只在首次挂载跑一次
-  }, [isSettings]);
+  }, [isSettings, isStudio, isPin]);
 
   useEffect(() => {
     const refresh = () =>
@@ -47,5 +52,5 @@ export default function App() {
     };
   }, [setLocale]);
 
-  return isSettings ? <Settings /> : <Panel />;
+  return isPin ? <Suspense fallback={<div/>}><PinnedImage/></Suspense> : isStudio ? <Suspense fallback={<div /> }><Studio /></Suspense> : isSettings ? <Settings /> : <Panel />;
 }

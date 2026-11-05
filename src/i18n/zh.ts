@@ -1,4 +1,5 @@
 export const zhCN = {
+  "panel.capture": "截图",
   "app.name": "PasteNext",
   "app.settings": "设置",
 

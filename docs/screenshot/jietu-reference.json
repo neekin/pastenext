@@ -1,0 +1,150 @@
+{
+  "target": "/Applications/截图.app",
+  "evidenceType": "local shell / plist inspection (not REA)",
+  "binaries": [
+    {
+      "path": "MacOS/Jietu",
+      "sha256": "9562fc5f6f32bc714c05dacae7c66fc40dda7498f24e43b4f69c3a92d285d290",
+      "size": 1542864
+    },
+    {
+      "path": "Frameworks/JietuFramework.framework/Versions/A/JietuFramework",
+      "sha256": "cf7d604c153e8010279681247265ff9505d9fd7aff900e185c12d66e67e6056d",
+      "size": 1223808
+    },
+    {
+      "path": "Frameworks/JTRecordSDK.framework/Versions/A/JTRecordSDK",
+      "sha256": "e2592e22fcc93756af1e9229985e262670c5660f089089b6b06874b64c4fb74e",
+      "size": 1127328
+    }
+  ],
+  "localizedStrings": {
+    "Resources/zh-Hans.lproj/Localizable.strings": {
+      "saveAlertCloseMessage": "图片尚未保存，您要保存吗？",
+      "saveAlertNotSave": "不保存",
+      "saveAlertNewMessage": "您要替换当前图片吗？",
+      "shortcutUsed": "快捷键已被占用，请换一组快捷键",
+      "saveAlertCancel": "取消",
+      "saveAlertSave": "保存",
+      "saveAlertCloseInfo": "",
+      "saveAlertReplace": "直接替换",
+      "saveAlertTerminate": "退出截图",
+      "saveAlertNewInfo": "替换前的图片尚未保存。",
+      "saveAlertSaveCurrent": "保存当前图片",
+      "shortcutUsedReasonFormat": "无法使用快捷键组合%@，因为已用于菜单项%@。",
+      "saveAlertClose": "关闭"
+    },
+    "Frameworks/JietuFramework.framework/Versions/A/Resources/zh-Hans.lproj/Localizable.strings": {
+      "jtswitch": "jtswitch",
+      "Undo": "撤销",
+      "Type shortcut": "按键盘设置快捷键",
+      "Option + ": "Option + ",
+      "Insert Arrow": "插入箭头",
+      "Permit access": "授权",
+      "Language": "Chinese",
+      "Medium": "中",
+      "You can't set this address for saving files.": "此路径不能被选择",
+      "Click to record shortcut": "点击设置快捷键",
+      "Exist": "退出截图",
+      "The key combination %@ can't be used!": "您的快捷键 %@ 设置失败!",
+      "Command + ": "Command + ",
+      "Control + ": "Control + ",
+      "The address is system address. It can't set for file-saving.": "此文件路径为系统路径，不能作为文件保存位置",
+      "it is in conflict with other default hotkey": "它与其它默认快捷冲突",
+      "it has been forbidden": "它被禁止了",
+      "Insert Characters": "插入文字",
+      "The key combination \"%@\" can't be used because %@.": "快捷键 \"%@\" 设置失败，因为%@。",
+      "Pictures": "图片",
+      "The key combination \"%@\" can't be used because it's already used by the menu item \"%@\".": "您的快捷键 \"%@\" 设置失效，该快捷键已被菜单\"%@\"占用.",
+      "jtswitchFirstFrame": "jtswitchFirstFrame",
+      "The key combination \"%@\" can't be used because it's already used by a system-wide keyboard shortcut. (If you really want to use this key combination, most shortcuts can be changed in the Keyboard & Mouse panel in System Preferences.)": "\"%@\" 为系统快捷键，您的快捷键设置失败（如果您使用该快捷键，会导致系统设置中跟键盘鼠标相关的快捷设置失效）",
+      "Max": "大",
+      "Insert Ellipse": "插入椭圆",
+      "Use old shortcut": "还原上次设置的快捷键",
+      "Mosaic": "插入马赛克",
+      "Finish": "完成截图（双击）",
+      "OK": "确认",
+      "Shift + ": "Shift + ",
+      "Pad %@": "Pad %@",
+      "Label Notes": "插入标签",
+      "Insert Rectangle": "插入矩形",
+      "Downloads": "下载",
+      "Save": "截图另存为",
+      "pt": "磅",
+      "Brush": "插入画笔",
+      "Min": "小",
+      "Space": "Space"
+    },
+    "Frameworks/JTRecordSDK.framework/Versions/A/Resources/zh-Hans.lproj/Localizable.strings": {
+      "current time": "当前时间",
+      "remaining time": "剩余时间",
+      "FinishRecord": "结束录制",
+      "ConvertingAndCopy%@": "转码中...\n完成后自动复制并保存至“%@”。\n可直接粘贴使用。",
+      "downloadPath": "下载",
+      "Converting": "格式转换中，请稍等",
+      "resolution": "清晰度",
+      "high": "高清",
+      "Finish": "完成并复制",
+      "standard": "普清",
+      "OK": "确认",
+      "Cancel": "取消",
+      "Recorded duration": "录制时长",
+      "Please select the recording area": "框选录屏区域",
+      "Jietu": "截图",
+      "jtswitchFirstFrame": "jtswitchFirstFrame",
+      "Save": "录屏另存为",
+      "standard resolution": "普清(适用于移动端)",
+      "high resolution": "高清",
+      "Start": "开始录制",
+      "extension": "格式:  ",
+      "Exist": "退出",
+      "jtswitch": "jtswitch"
+    }
+  },
+  "reaEvidence": {
+    "jietu-interface": {
+      "id": "ev_0f80163ff9bee581ee6e971ea29c91164f50ec7a50c183fdecf6cd91e8068bb6",
+      "path": "/tmp/pastenext-screenshot/jietu-interface.json",
+      "limitations": [
+        "The graph reflects recognized Interface Builder archive fields and connections; omitted private or unrecognized archive fields remain unknown.",
+        "A target-action selector is an Interface Builder observation and does not prove that the binary contains a matching implementation.",
+        "Decoded constraints, runtime visibility, dynamic UI creation, and pixel geometry are not inferred from these archives.",
+        "Compiled Interface Builder archives are private serialized object graphs. The decoder reports only recognized keyed-archive objects and connections; unrecognized object classes and fields remain unknown."
+      ]
+    },
+    "jietu-record-macho": {
+      "id": "ev_01228abece96cd9428b65120c9a50e0a899b1b10d5090582e2adea9768372b8a",
+      "path": "/tmp/pastenext-screenshot/jietu-record-macho.json",
+      "limitations": [
+        "Imports and exports combine dyld_info and nm; stripped or toolchain-hidden symbols may be absent.",
+        "vtool output is retained as provenance but only otool build metadata is normalized."
+      ]
+    }
+  },
+  "shortcuts": {
+    "source": "User screenshot of Preferences, supported by local Mach-O disassembly and Xcode SDK key constants",
+    "capture": {
+      "keys": "Control+Shift+A",
+      "method": "defaultValueOfCaptureHotKey",
+      "address": "0x10004d1aa",
+      "keyCode": 0,
+      "modifierFlags": "0x60000"
+    },
+    "record": {
+      "keys": "Control+Shift+R",
+      "method": "defaultValueOfRecordHotKey",
+      "address": "0x10004d274",
+      "keyCode": 15,
+      "modifierFlags": "0x60000"
+    },
+    "scroll": {
+      "keys": "Control+Shift+G",
+      "method": "defaultValueOfScrollHotKey",
+      "address": "0x10004d341",
+      "keyCode": 5,
+      "modifierFlags": "0x60000"
+    },
+    "menu": "MainMenu.nib: Cmd+O open; Cmd+S save; Shift+Cmd+S save-as; Cmd+W close; Cmd+, preferences",
+    "editor": "performKeyEquivalent: contains undo/redo, copy, zoom-in/out and focused-item movement/deletion; full editor object manipulation not claimed as implemented"
+  }
+}

@@ -55,13 +55,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS media_assets (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
 "#;
 
 /// 数据库 schema 版本号。每次改动 SCHEMA(加表、加列、改索引)时:
 /// 1. 把 SCHEMA_VERSION 加 1
 /// 2. 在 MIGRATIONS 末尾追加一条从旧版本升级到新版本的 SQL
 /// 3. 启动时 run_migrations 会自动按顺序执行,不会丢用户数据
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 #[cfg(test)]
 mod startup_tests {
@@ -103,6 +104,7 @@ const MIGRATIONS: &[&str] = &[
     "",
     "ALTER TABLE clips ADD COLUMN source_app_key TEXT;",
     "ALTER TABLE clips ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0;",
+    "CREATE TABLE IF NOT EXISTS media_assets (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);",
 ];
 
 /// 执行数据库迁移。每次打开数据库时调用,确保老用户的数据能平滑升级。
@@ -151,6 +153,25 @@ fn run_migrations(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), Str
 }
 
 impl Db {
+    pub fn save_media(&self, id: &str, metadata: &str) -> Result<(), String> {
+        self.conn.lock().unwrap().execute("INSERT INTO media_assets(id,metadata) VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata", params![id,metadata]).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    pub fn get_media(&self, id: &str) -> Option<String> {
+        self.conn.lock().unwrap().query_row("SELECT metadata FROM media_assets WHERE id=?1", [id], |r| r.get(0)).ok()
+    }
+
+    pub fn list_media(&self) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let Ok(mut stmt) = conn.prepare("SELECT metadata FROM media_assets ORDER BY rowid DESC LIMIT 200") else { return vec![]; };
+        let rows = stmt.query_map([], |r| r.get::<_,String>(0));
+        rows.map(|r| r.filter_map(Result::ok).collect()).unwrap_or_default()
+    }
+
+    pub fn delete_media(&self, id: &str) -> Result<(), String> {
+        self.conn.lock().unwrap().execute("DELETE FROM media_assets WHERE id=?1", [id]).map(|_|()).map_err(|e|e.to_string())
+    }
+
     pub fn open(path: &Path) -> Result<Self, String> {
         let conn = rusqlite::Connection::open(path).map_err(|e| e.to_string())?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();

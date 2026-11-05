@@ -1,5 +1,6 @@
 {
   "bundle": {
-    "resources": ["ocr_helper"]
+    "resources": ["ocr_helper", "media_export", "capture_selector"],
+    "macOS": {"minimumSystemVersion": "11.0"}
   }
 }

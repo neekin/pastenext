@@ -17,6 +17,8 @@ export default defineConfig({
       input: {
         main: "index.html",
         settings: "settings.html",
+        studio: "studio.html",
+        pin: "pin.html",
       },
     },
   },

@@ -36,62 +36,103 @@ fn main() {
     // 打包时由 tauri.conf.json 的 bundle.resources 拷进 Contents/Resources。
     #[cfg(target_os = "macos")]
     build_ocr_helper();
+    #[cfg(target_os = "macos")]
+    build_media_helper();
+    #[cfg(target_os = "macos")]
+    build_helper(
+        "capture/selection.swift",
+        "capture_selector",
+        &["AppKit", "CoreGraphics"],
+    );
+
+    #[cfg(target_os = "windows")]
+    build_windows_selector();
 
     tauri_build::build()
 }
 
-/// 用 xcrun swiftc 把 ocr/ocr.swift 编译成 ocr_helper。失败不致命:
-/// 只是图片 OCR 不可用,其余功能照常。产物已存在且比源码新则跳过以加速重建。
+#[cfg(target_os = "macos")]
+fn build_helper(source: &str, output: &str, frameworks: &[&str]) {
+    println!("cargo:rerun-if-changed={source}");
+    // Cargo TARGET, not host architecture: Intel releases may be built on Apple Silicon.
+    let arch = if std::env::var("TARGET")
+        .unwrap_or_default()
+        .starts_with("x86_64")
+    {
+        "x86_64"
+    } else {
+        "arm64"
+    };
+    let target = format!("{arch}-apple-macosx11.0");
+    let mut command = std::process::Command::new("xcrun");
+    command.args(["swiftc", "-O", "-target", &target]);
+    if source == "capture/selection.swift" {
+        command.arg("-parse-as-library");
+    }
+    for framework in frameworks {
+        command.args(["-framework", framework]);
+    }
+    let status = command
+        .args([source, "-o", output])
+        .status()
+        .expect("Unable to run Swift compiler");
+    assert!(
+        status.success(),
+        "Native helper compilation failed: {source}"
+    );
+    let status = std::process::Command::new("codesign")
+        .args(["--force", "--sign", "-", output])
+        .status()
+        .expect("Unable to sign helper");
+    assert!(status.success(), "Unable to sign native helper: {output}");
+}
 #[cfg(target_os = "macos")]
 fn build_ocr_helper() {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=ocr/ocr.swift");
+    build_helper(
+        "ocr/ocr.swift",
+        "ocr_helper",
+        &["Vision", "Foundation", "ImageIO"],
+    );
+}
+#[cfg(target_os = "macos")]
+fn build_media_helper() {
+    build_helper(
+        "media/export.swift",
+        "media_export",
+        &["AVFoundation", "ImageIO"],
+    );
+}
 
-    let out = std::path::Path::new("ocr_helper");
-    let src = std::path::Path::new("ocr/ocr.swift");
-    let need = match (out.exists(), src.exists()) {
-        (false, true) => true,
-        (true, true) => {
-            let om = std::fs::metadata(out)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            let sm = std::fs::metadata(src)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            om < sm
-        }
-        _ => false,
-    };
-    if !need {
-        return;
-    }
-
-    eprintln!("[build] 编译 OCR 辅助二进制 (Swift / Vision) …");
-    let status = std::process::Command::new("xcrun")
+#[cfg(target_os = "windows")]
+fn build_windows_selector() {
+    println!("cargo:rerun-if-changed=capture/selection_windows.cpp");
+    let compiler = cc::Build::new().cpp(true).get_compiler();
+    assert!(
+        compiler.is_like_msvc(),
+        "Windows capture selector requires MSVC"
+    );
+    let status = compiler
+        .to_command()
         .args([
-            "swiftc",
-            "-O",
-            "-framework",
-            "Vision",
-            "-framework",
-            "Foundation",
-            "-framework",
-            "ImageIO",
-            "ocr/ocr.swift",
-            "-o",
-            "ocr_helper",
+            "/nologo",
+            "/std:c++17",
+            "/O2",
+            "/EHsc",
+            "/utf-8",
+            "/DUNICODE",
+            "/D_UNICODE",
+            "capture/selection_windows.cpp",
+            "/Fe:capture_selector.exe",
+            "/link",
+            "user32.lib",
+            "gdi32.lib",
+            "msimg32.lib",
+            "dwmapi.lib",
         ])
-        .status();
-
-    match status {
-        Ok(s) if s.success() => {
-            // 与主程序一起做 ad-hoc 签名,避免受 Hardened Runtime 影响无法调用
-            let _ = std::process::Command::new("codesign")
-                .args(["--force", "--sign", "-", "ocr_helper"])
-                .status();
-        }
-        _ => {
-            println!("cargo:warning=OCR 辅助二进制编译失败,图片 OCR 将不可用(应用其余功能正常)");
-        }
-    }
+        .status()
+        .expect("Unable to compile Windows capture selector");
+    assert!(
+        status.success(),
+        "Windows capture selector compilation failed"
+    );
 }
