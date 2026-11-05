@@ -37,16 +37,28 @@ jobs:
         run: |
           & src-tauri/capture_selector.exe --self-test
           if ($LASTEXITCODE -ne 0) { throw "Windows selector self-test failed" }
-      - name: Build Windows client
-        run: pnpm tauri build --debug --bundles nsis --config src-tauri/tauri.preview.conf.json
+      - name: Build Windows client for native validation
+        shell: pwsh
+        run: |
+          $config=Get-Content src-tauri/tauri.preview.conf.json -Raw | ConvertFrom-Json
+          foreach($window in $config.app.windows) {
+            $window | Add-Member -NotePropertyName additionalBrowserArgs -NotePropertyValue '--remote-debugging-port=9222'
+          }
+          $config | ConvertTo-Json -Depth 20 | Set-Content "$env:RUNNER_TEMP/tauri-native-test.json"
+          pnpm tauri build --debug --bundles nsis --config "$env:RUNNER_TEMP/tauri-native-test.json"
       - name: Install and exercise native Windows client
         shell: pwsh
         run: ./scripts/test-windows-client.ps1
+      - name: Build clean Preview installer
+        shell: pwsh
+        run: |
+          pnpm tauri build --debug --bundles nsis --config src-tauri/tauri.preview.conf.json
+          if($LASTEXITCODE -ne 0) { throw 'Clean Preview build failed' }
+          Copy-Item 'src-tauri/target/debug/bundle/nsis/*.exe' "$env:RUNNER_TEMP/pastenext-native-report/"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-capture-check
           path: |
-            src-tauri/target/debug/bundle/nsis/*.exe
             src-tauri/ffmpeg/runtime.json
             ${{ runner.temp }}/pastenext-native-report/*
