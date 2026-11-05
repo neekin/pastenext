@@ -329,6 +329,8 @@ pub fn run() {
         .setup(|app| {
             let dir = portable::resolve_data_dir(app.handle());
             std::fs::create_dir_all(&dir)?;
+            // Portable images and recordings live beside the executable, outside $APPDATA.
+            app.asset_protocol_scope().allow_directory(&dir, true)?;
             let db = Db::open(&dir.join("paste-next.db")).map_err(std::io::Error::other)?;
             db.ensure_defaults();
             // 一次性迁移:旧版本在 Windows 上种下的默认快捷键是 CmdOrCtrl+Shift+V

@@ -17,6 +17,7 @@ function Shortcut([byte]$value) {
  [NativeInput]::keybd_event(0x10,0,2,[UIntPtr]::Zero);[NativeInput]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
 }
 switch ($Action) {
+ 'probe' { [NativeInput]::FindWindow($null,'PasteNext Capture Selection').ToInt64() }
  'capture' { Shortcut 0x41 }
  'record' { Shortcut 0x52 }
  'region' {
