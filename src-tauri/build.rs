@@ -106,7 +106,7 @@ fn build_media_helper() {
 #[cfg(target_os = "windows")]
 fn build_windows_selector() {
     println!("cargo:rerun-if-changed=capture/selection_windows.cpp");
-    let compiler = cc::Build::new().cpp(true).get_compiler();
+    let compiler = cc::Build::new().cpp(true).static_crt(true).get_compiler();
     assert!(
         compiler.is_like_msvc(),
         "Windows capture selector requires MSVC"
