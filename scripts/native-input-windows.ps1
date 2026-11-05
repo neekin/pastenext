@@ -17,11 +17,11 @@ function Shortcut([byte]$value) {
  [NativeInput]::keybd_event(0x10,0,2,[UIntPtr]::Zero);[NativeInput]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
 }
 switch ($Action) {
- 'probe' { [NativeInput]::FindWindow($null,'PasteNext Capture Selection').ToInt64() }
+ 'probe' { [NativeInput]::FindWindow('PasteNextCaptureSelector',$null).ToInt64() }
  'capture' { Shortcut 0x41 }
  'record' { Shortcut 0x52 }
  'region' {
-  $window=[NativeInput]::FindWindow($null,'PasteNext Capture Selection');if($window -eq [IntPtr]::Zero){throw 'Selection window not found'}
+  $window=[NativeInput]::FindWindow('PasteNextCaptureSelector',$null);if($window -eq [IntPtr]::Zero){throw 'Selection window not found'}
   [void][NativeInput]::SetForegroundWindow($window);Key 0x31
   [void][NativeInput]::SetCursorPos(80,80);Start-Sleep -Milliseconds 60
   [NativeInput]::mouse_event(2,0,0,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 60
@@ -29,7 +29,7 @@ switch ($Action) {
   [NativeInput]::mouse_event(4,0,0,0,[UIntPtr]::Zero);Start-Sleep -Milliseconds 60;Key 0x0d
  }
  'screen' {
-  $window=[NativeInput]::FindWindow($null,'PasteNext Capture Selection');if($window -eq [IntPtr]::Zero){throw 'Selection window not found'}
+  $window=[NativeInput]::FindWindow('PasteNextCaptureSelector',$null);if($window -eq [IntPtr]::Zero){throw 'Selection window not found'}
   [void][NativeInput]::SetForegroundWindow($window);Key 0x33;Key 0x0d
  }
  'cancel' { Key 0x1b }
