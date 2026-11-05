@@ -1,5 +1,44 @@
 {
   "productName": "PasteNext Preview",
   "identifier": "io.pastenext.preview",
-  "mainBinaryName": "PasteNextPreview"
+  "mainBinaryName": "PasteNextPreview",
+  "app": {
+    "windows": [
+      {
+        "label": "panel",
+        "title": "PasteNext",
+        "width": 860,
+        "height": 380,
+        "minWidth": 640,
+        "minHeight": 300,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "settings",
+        "title": "PasteNext Settings",
+        "width": 760,
+        "height": 600,
+        "visible": false,
+        "resizable": true,
+        "url": "settings.html"
+      },
+      {
+        "label": "studio",
+        "title": "PasteNext Preview · 截图工作台",
+        "width": 1160,
+        "height": 780,
+        "minWidth": 900,
+        "minHeight": 620,
+        "visible": true,
+        "resizable": true,
+        "url": "studio.html"
+      }
+    ]
+  }
 }
