@@ -1,0 +1,23 @@
+name: macos-signing-check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signing:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify fixed identity and sign an application
+        env:
+          PASTENEXT_MACOS_CERTIFICATE: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE }}
+          PASTENEXT_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE_PASSWORD }}
+        run: python3 scripts/package-macos-ci.py --check-signing

@@ -24,18 +24,19 @@ def run(args, **kwargs):
     return result.stdout
 
 
-def package(target):
+def package(target=None):
     repo = Path(__file__).resolve().parents[1]
     version = json.loads((repo / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"]
-    arch = "arm64" if target.startswith("aarch64-") else "x86_64"
-    bundle = repo / "src-tauri/target" / target / "release/bundle"
-    app = bundle / "macos/PasteNext.app"
-    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-    if info.get("CFBundleIdentifier") != "io.pastenext.app" or info.get("CFBundleShortVersionString") != version:
-        raise RuntimeError("Release bundle identifier or version differs from source")
-    for executable in [app / "Contents/MacOS" / info["CFBundleExecutable"], *[app / "Contents/Resources" / name for name in ("ocr_helper", "media_export", "capture_selector")]]:
-        if run(["lipo", "-archs", executable]).decode().strip() != arch:
-            raise RuntimeError(f"Wrong architecture: {executable.name}")
+    if target:
+        arch = "arm64" if target.startswith("aarch64-") else "x86_64"
+        bundle = repo / "src-tauri/target" / target / "release/bundle"
+        app = bundle / "macos/PasteNext.app"
+        info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+        if info.get("CFBundleIdentifier") != "io.pastenext.app" or info.get("CFBundleShortVersionString") != version:
+            raise RuntimeError("Release bundle identifier or version differs from source")
+        for executable in [app / "Contents/MacOS" / info["CFBundleExecutable"], *[app / "Contents/Resources" / name for name in ("ocr_helper", "media_export", "capture_selector")]]:
+            if run(["lipo", "-archs", executable]).decode().strip() != arch:
+                raise RuntimeError(f"Wrong architecture: {executable.name}")
 
     certificate = os.environ.get("PASTENEXT_MACOS_CERTIFICATE", "")
     password = os.environ.get("PASTENEXT_MACOS_CERTIFICATE_PASSWORD", "")
@@ -49,6 +50,7 @@ def package(target):
         p12 = root / "identity.p12"
         p12.write_bytes(base64.b64decode(certificate, validate=True))
         keychain_password = secrets.token_urlsafe(48)
+        previous_keychains = [line.strip().strip('"') for line in run(["security", "list-keychains", "-d", "user"]).decode().splitlines() if line.strip()]
         created = False
         try:
             run(["security", "create-keychain", "-p", keychain_password, keychain])
@@ -56,19 +58,41 @@ def package(target):
             run(["security", "set-keychain-settings", "-l", "-u", "-t", "600", keychain])
             run(["security", "unlock-keychain", "-p", keychain_password, keychain])
             run(["security", "import", p12, "-f", "pkcs12", "-t", "agg", "-k", keychain, "-P", password, "-T", "/usr/bin/codesign"])
+            run(["security", "list-keychains", "-d", "user", "-s", *previous_keychains, keychain])
             pem = run(["security", "find-certificate", "-a", "-p", keychain])
             der = run(["openssl", "x509", "-outform", "DER"], input=pem)
             if hashlib.sha1(der).hexdigest().upper() != CERTIFICATE_SHA1:
                 raise RuntimeError("CI signing certificate differs from the existing identity")
+            legacy = ["-legacy"] if run(["openssl", "version"]).startswith(b"OpenSSL 3.") else []
+            private_key = run(["openssl", "pkcs12", *legacy, "-in", p12, "-nocerts", "-nodes", "-passin", "env:PASTENEXT_MACOS_CERTIFICATE_PASSWORD"])
+            key_public = run(["openssl", "pkey", "-pubout", "-outform", "DER"], input=private_key)
+            certificate_public = run(["openssl", "x509", "-pubkey", "-noout"], input=pem)
+            certificate_public = run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=certificate_public)
+            if key_public != certificate_public:
+                raise RuntimeError("PKCS#12 private key does not match the fixed certificate")
             (root / "certificate.pem").write_bytes(pem)
             (root / "keychain-password").write_text(keychain_password)
             (root / "identity.json").write_text(json.dumps({"name": CERTIFICATE_NAME, "sha1": CERTIFICATE_SHA1}))
             run(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", keychain_password, keychain])
+            print(run(["security", "find-identity", "-p", "codesigning", keychain]).decode(), flush=True)
+            if target is None:
+                app = root / "PasteNext.app"
+                executable = app / "Contents/MacOS/check"
+                executable.parent.mkdir(parents=True)
+                (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "io.pastenext.app", "CFBundleExecutable": "check", "CFBundleShortVersionString": version, "CFBundlePackageType": "APPL"}))
+                run(["clang", "-x", "c", "-o", executable, "-"], input=b"int main(void) { return 0; }\n")
             signing_env = dict(os.environ, PASTENEXT_SIGNING_DIR=str(root))
             run([sys.executable, repo / "scripts/sign-macos-local.py", app], env=signing_env)
         finally:
             if created:
-                run(["security", "delete-keychain", keychain])
+                try:
+                    run(["security", "list-keychains", "-d", "user", "-s", *previous_keychains])
+                finally:
+                    run(["security", "delete-keychain", keychain])
+
+        if target is None:
+            print("Fixed certificate, matching private key and application signing verified")
+            return
 
         stage = root / "image"
         stage.mkdir()
@@ -94,7 +118,9 @@ def package(target):
 if __name__ == "__main__":
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--target", required=True, choices=["aarch64-apple-darwin", "x86_64-apple-darwin"])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--target", choices=["aarch64-apple-darwin", "x86_64-apple-darwin"])
+    mode.add_argument("--check-signing", action="store_true")
     try:
         package(parser.parse_args().target)
     except Exception as error:
