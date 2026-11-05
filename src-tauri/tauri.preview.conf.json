@@ -1,4 +1,5 @@
 {
   "productName": "PasteNext Preview",
-  "identifier": "io.pastenext.preview"
+  "identifier": "io.pastenext.preview",
+  "mainBinaryName": "PasteNextPreview"
 }
