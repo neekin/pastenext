@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <shellscalingapi.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -10,7 +11,7 @@
 #include <vector>
 
 struct Target { HWND handle; RECT rect; };
-struct Monitor { RECT rect; bool primary; };
+struct Monitor { RECT rect; bool primary; double scale; };
 static RECT desktop{}, region{};
 static std::vector<Target> targets;
 static std::vector<Monitor> monitors;
@@ -23,7 +24,7 @@ static HGDIOBJ oldBitmap=nullptr;
 static int mode=0, monitorIndex=0, hoverIndex=-1, drag=-1;
 static POINT start{};
 static RECT original{};
-static bool english=false, finished=false;
+static bool english=false, finished=false, video=false;
 static std::string output="{\"cancelled\":true}";
 static HFONT font=nullptr;
 static RECT toolbar{}, buttons[5]{};
@@ -34,14 +35,14 @@ static const wchar_t* text(const wchar_t* zh,const wchar_t* en){return english?e
 static RECT local(RECT r){OffsetRect(&r,-desktop.left,-desktop.top);return r;}
 static RECT chosen(){return mode==0?region:mode==1?(hoverIndex>=0?targets[hoverIndex].rect:RECT{}):monitors[monitorIndex].rect;}
 static bool valid(RECT r){return r.right-r.left>=2&&r.bottom-r.top>=2;}
-static RECT between(POINT a,POINT b){return RECT{std::min(a.x,b.x),std::min(a.y,b.y),std::max(a.x,b.x),std::max(a.y,b.y)};}
-static POINT clampPoint(POINT p){p.x=std::clamp(p.x,desktop.left,desktop.right);p.y=std::clamp(p.y,desktop.top,desktop.bottom);return p;}
+static RECT between(POINT a,POINT b){return RECT{std::min(a.x,b.x),std::min(a.y,b.y),std::max<LONG>(a.x,b.x),std::max<LONG>(a.y,b.y)};}
+static POINT clampPoint(POINT p){p.x=std::clamp<LONG>(p.x,desktop.left,desktop.right);p.y=std::clamp<LONG>(p.y,desktop.top,desktop.bottom);return p;}
 static POINT point(LPARAM l){return clampPoint(POINT{GET_X_LPARAM(l)+desktop.left,GET_Y_LPARAM(l)+desktop.top});}
 static void cancel(){finished=true;DestroyWindow(overlay);}
 static void confirm(){
     RECT r=chosen();if(!valid(r))return;
     const char* name=mode==0?"region":mode==1?"window":"screen";
-    output="{\"cancelled\":false,\"mode\":\""+std::string(name)+"\",\"display\":"+std::to_string(monitorIndex+1)+",\"rect\":{\"x\":"+std::to_string(r.left)+",\"y\":"+std::to_string(r.top)+",\"width\":"+std::to_string(r.right-r.left)+",\"height\":"+std::to_string(r.bottom-r.top)+"}";
+    output="{\"cancelled\":false,\"mode\":\""+std::string(name)+"\",\"display\":"+std::to_string(monitorIndex+1)+",\"scale\":"+std::to_string(monitors[monitorIndex].scale)+",\"rect\":{\"x\":"+std::to_string(r.left)+",\"y\":"+std::to_string(r.top)+",\"width\":"+std::to_string(r.right-r.left)+",\"height\":"+std::to_string(r.bottom-r.top)+"}";
     if(mode==1)output+=",\"windowId\":"+std::to_string(reinterpret_cast<uintptr_t>(targets[hoverIndex].handle));
     output+="}";finished=true;DestroyWindow(overlay);
 }
@@ -63,15 +64,15 @@ static void paint(HWND hwnd){
         BitBlt(buffer,clipped.left,clipped.top,clipped.right-clipped.left,clipped.bottom-clipped.top,snapshot,clipped.left,clipped.top,SRCCOPY);
         HPEN p=CreatePen(PS_SOLID,2,RGB(157,157,255));HGDIOBJ oldp=SelectObject(buffer,p);HGDIOBJ oldb=SelectObject(buffer,GetStockObject(HOLLOW_BRUSH));Rectangle(buffer,draw.left,draw.top,draw.right,draw.bottom);SelectObject(buffer,oldp);SelectObject(buffer,oldb);DeleteObject(p);
         if(mode==0)for(auto pt:handles(draw))box(buffer,{pt.x-3,pt.y-3,pt.x+4,pt.y+4},RGB(255,255,255));
-        RECT dim{std::clamp(draw.left,8,std::max(8,w-188)),std::clamp(draw.top-34,8,std::max(8,h-36)),0,0};dim.right=dim.left+180;dim.bottom=dim.top+28;box(buffer,dim,RGB(22,24,34),8);
+        RECT dim{std::clamp<LONG>(draw.left,8,std::max<LONG>(8,w-188)),std::clamp<LONG>(draw.top-34,8,std::max<LONG>(8,h-36)),0,0};dim.right=dim.left+180;dim.bottom=dim.top+28;box(buffer,dim,RGB(22,24,34),8);
         SelectObject(buffer,font);SetBkMode(buffer,TRANSPARENT);std::wstring size=std::to_wstring(r.right-r.left)+L" × "+std::to_wstring(r.bottom-r.top)+L" px";label(buffer,dim,size.c_str());
     }
     RECT display=local(monitors[monitorIndex].rect);
-    int left=display.left+std::max(8,(display.right-display.left-570)/2),top=display.bottom-124;
+    int left=display.left+std::max<LONG>(8,(display.right-display.left-570)/2),top=display.bottom-124;
     toolbar={left,top,left+570,top+96};box(buffer,toolbar,RGB(28,30,42),16);SelectObject(buffer,font);SetBkMode(buffer,TRANSPARENT);
     for(int i=0;i<5;++i){int width=i<3?92:i==3?98:112;int x=left+14+(i<3?i*100:300+(i-3)*106);buttons[i]={x,top+12,x+width,top+48};
         box(buffer,buttons[i],i==mode?RGB(89,85,183):i==4?RGB(91,83,201):RGB(49,52,68),8);
-        const wchar_t* values[]={text(L"区域  1",L"Region  1"),text(L"窗口  2",L"Window  2"),text(L"全屏  3",L"Display  3"),text(L"取消 Esc",L"Cancel Esc"),text(L"截取 ↵",L"Capture ↵")};label(buffer,buttons[i],values[i],i==4&&!valid(r)?RGB(145,147,164):RGB(255,255,255));
+        const wchar_t* values[]={text(L"区域  1",L"Region  1"),text(L"窗口  2",L"Window  2"),text(L"全屏  3",L"Display  3"),text(L"取消 Esc",L"Cancel Esc"),video?text(L"录制 ↵",L"Record ↵"):text(L"截取 ↵",L"Capture ↵")};label(buffer,buttons[i],values[i],i==4&&!valid(r)?RGB(145,147,164):RGB(255,255,255));
     }
     RECT hint{left+8,top+57,left+562,top+88};label(buffer,hint,mode==0?text(L"拖动框选或调整边角 · 1/2/3 切换 · 回车截取",L"Drag to select / resize · 1/2/3 switch modes · Enter captures"):mode==1?text(L"移动鼠标选窗口，单击截取 · 1/2/3 切换",L"Point to a window and click · 1/2/3 switch modes"):text(L"单击目标屏幕截取 · 1/2/3 切换 · Esc 取消",L"Click a display · 1/2/3 switch modes · Esc cancels"),RGB(185,188,205));
     BitBlt(dc,0,0,w,h,buffer,0,0,SRCCOPY);EndPaint(hwnd,&ps);
@@ -93,7 +94,7 @@ static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM key,LPARAM data)
     case WM_MOUSEMOVE:{
         POINT p=point(data);if(drag>=0){
             if(drag==0)region=between(start,p);
-            else if(drag==1){region=original;LONG dx=std::clamp(p.x-start.x,desktop.left-original.left,desktop.right-original.right),dy=std::clamp(p.y-start.y,desktop.top-original.top,desktop.bottom-original.bottom);OffsetRect(&region,dx,dy);}
+            else if(drag==1){region=original;LONG dx=std::clamp<LONG>(p.x-start.x,desktop.left-original.left,desktop.right-original.right),dy=std::clamp<LONG>(p.y-start.y,desktop.top-original.top,desktop.bottom-original.bottom);OffsetRect(&region,dx,dy);}
             else {int i=drag-2;POINT a{original.left,original.top},b{original.right,original.bottom};if(i==0||i==3||i==5)a.x=p.x;if(i==2||i==4||i==7)b.x=p.x;if(i<=2)a.y=p.y;if(i>=5)b.y=p.y;region=between(a,b);}
         }else {POINT client{GET_X_LPARAM(data),GET_Y_LPARAM(data)};if(!PtInRect(&toolbar,client))hover(p);}InvalidateRect(hwnd,nullptr,FALSE);return 0;}
     case WM_LBUTTONUP:drag=-1;ReleaseCapture();return 0;
@@ -109,7 +110,7 @@ static BOOL CALLBACK enumerate(HWND hwnd,LPARAM){
     RECT r{};if(FAILED(DwmGetWindowAttribute(hwnd,DWMWA_EXTENDED_FRAME_BOUNDS,&r,sizeof(r))))GetWindowRect(hwnd,&r);
     if(r.right-r.left>=40&&r.bottom-r.top>=30)targets.push_back({hwnd,r});return TRUE;
 }
-static BOOL CALLBACK enumerateMonitor(HMONITOR h,HDC,LPRECT,LPARAM){MONITORINFO i{};i.cbSize=sizeof(i);GetMonitorInfoW(h,&i);monitors.push_back({i.rcMonitor,(i.dwFlags&MONITORINFOF_PRIMARY)!=0});return TRUE;}
+static BOOL CALLBACK enumerateMonitor(HMONITOR h,HDC,LPRECT,LPARAM){MONITORINFO i{};i.cbSize=sizeof(i);GetMonitorInfoW(h,&i);UINT x=96,y=96;GetDpiForMonitor(h,MDT_EFFECTIVE_DPI,&x,&y);monitors.push_back({i.rcMonitor,(i.dwFlags&MONITORINFOF_PRIMARY)!=0,x/96.0});return TRUE;}
 static LRESULT CALLBACK clickProcedure(HWND hwnd,UINT msg,WPARAM key,LPARAM data){
     if(msg==WM_TIMER){DWORD status=0;if(!GetExitCodeProcess(recordProcess,&status)||status!=STILL_ACTIVE){DestroyWindow(hwnd);return 0;}
         bool pressed=(GetAsyncKeyState(VK_LBUTTON)&0x8000)||(GetAsyncKeyState(VK_RBUTTON)&0x8000);
@@ -121,7 +122,7 @@ static LRESULT CALLBACK clickProcedure(HWND hwnd,UINT msg,WPARAM key,LPARAM data
 }
 int wmain(int argc,wchar_t** argv){
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    for(int i=1;i+1<argc;++i){std::wstring a=argv[i];if(a==L"--mode")mode=std::wstring(argv[i+1])==L"window"?1:std::wstring(argv[i+1])==L"screen"?2:0;if(a==L"--locale")english=std::wstring(argv[i+1])==L"en";}
+    for(int i=1;i+1<argc;++i){std::wstring a=argv[i];if(a==L"--mode")mode=std::wstring(argv[i+1])==L"window"?1:std::wstring(argv[i+1])==L"screen"?2:0;if(a==L"--locale")english=std::wstring(argv[i+1])==L"en";if(a==L"--video")video=std::wstring(argv[i+1])==L"1";}
     if(argc>1&&std::wstring(argv[1])==L"--beep"){MessageBeep(MB_OK);return 0;}
     HINSTANCE instance=GetModuleHandleW(nullptr);WNDCLASSW wc{};wc.hInstance=instance;wc.hCursor=LoadCursorW(nullptr,IDC_CROSS);wc.lpszClassName=L"PasteNextCaptureSelector";wc.lpfnWndProc=procedure;
     if(argc>2&&std::wstring(argv[1])==L"--clicks"){

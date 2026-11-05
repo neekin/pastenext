@@ -23,7 +23,8 @@ controller.keyDown(NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[
 check(controller.mode == .region,"keyboard switches to region")
 view.setFrameSize(NSSize(width:400,height:300));controller.region=NSRect(x:origin.x+100,y:origin.y+100,width:100,height:100)
 let bitmap=view.bitmapImageRepForCachingDisplay(in:view.bounds)!;view.cacheDisplay(in:view.bounds,to:bitmap)
-let outside=bitmap.colorAt(x:10,y:10)!,inside=bitmap.colorAt(x:150,y:150)!
+let pixelScale=CGFloat(bitmap.pixelsWide)/view.bounds.width
+let outside=bitmap.colorAt(x:Int(10*pixelScale),y:Int(10*pixelScale))!,inside=bitmap.colorAt(x:Int(150*pixelScale),y:Int(150*pixelScale))!
 check(abs(outside.alphaComponent-selectionShade)<0.04,"outside selection uses a 60 percent dim mask")
 check(inside.alphaComponent<0.02,"selected area stays clear")
 if let i=CommandLine.arguments.firstIndex(of:"--snapshot"),CommandLine.arguments.count>i+1{try bitmap.representation(using:.png,properties:[:])!.write(to:URL(fileURLWithPath:CommandLine.arguments[i+1]))}

@@ -27,8 +27,15 @@ pub fn capture(
 ) -> Result<Command, String> {
     selected.validate()?;
     let r = selected.rect.as_ref().ok_or("没有选择截图范围")?;
+    if video && (r.width < 16. || r.height < 16.) {
+        return Err("录屏范围至少需要 16 × 16 像素".into());
+    }
     let mut c = command(resources)?;
     c.args([
+        "-probesize",
+        "32",
+        "-analyzeduration",
+        "0",
         "-f",
         "gdigrab",
         "-framerate",
@@ -52,7 +59,7 @@ pub fn capture(
         c.args([
             "-an",
             "-vf",
-            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,scale=w='min(iw,3840)':h='min(ih,2160)':force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-c:v",
             "libopenh264",
             "-b:v",
@@ -119,7 +126,7 @@ pub fn export(
         c.args([
             "-vf",
             if quality >= 90 {
-                "pad=ceil(iw/2)*2:ceil(ih/2)*2"
+                "pad=ceil(iw/2)*2:ceil(ih/2)*2,scale=w='min(iw,3840)':h='min(ih,2160)':force_original_aspect_ratio=decrease:force_divisible_by=2"
             } else {
                 "scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2"
             },

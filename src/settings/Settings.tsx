@@ -92,6 +92,11 @@ function acceleratorFromEvent(e: KeyboardEvent): string | null {
   return [...mods, key].join("+");
 }
 
+function hotkeyLabel(value:string){
+  const mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  return value.replace(/CmdOrCtrl/g,mac?"⌘":"Ctrl").replace(/CommandOrControl/g,mac?"⌘":"Ctrl").replace(/Control|Ctrl/g,mac?"⌃":"Ctrl").replace(/Shift/g,mac?"⇧":"Shift").replace(/Alt/g,mac?"⌥":"Alt").replace(/\+/g,mac?" ":" + ");
+}
+
 /** 点击进入录制态,下一次按键即记录为该全局快捷键并立即保存。 */
 export function HotkeyRecorder({
   value,
@@ -151,7 +156,7 @@ export function HotkeyRecorder({
             : "bg-black/5 dark:bg-white/10 border-black/10 dark:border-white/10 hover:bg-black/10 dark:hover:bg-white/20"
         }`}
       >
-        {recording ? t("settings.hotkey.recording") : display || defaultValue}
+        {recording ? t("settings.hotkey.recording") : hotkeyLabel(display || defaultValue)}
       </button>
       {recording && (
         <span className="text-xs text-neutral-400">{t("settings.hotkey.hint")}</span>

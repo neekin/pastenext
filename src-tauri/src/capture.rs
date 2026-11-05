@@ -269,7 +269,7 @@ fn encode_image(path: &Path, format: &str, quality: u8) -> Result<Vec<u8>, Strin
     }
     Ok(bytes.into_inner())
 }
-fn finish_image(app: &AppHandle, path: &Path) -> Result<MediaAsset, String> {
+fn finish_image(app: &AppHandle, path: &Path, _scale: Option<f64>) -> Result<MediaAsset, String> {
     let prefs = preferences(app);
     #[cfg(target_os = "macos")]
     if !prefs.high_resolution {
@@ -294,6 +294,21 @@ fn finish_image(app: &AppHandle, path: &Path) -> Result<MediaAsset, String> {
                 .resize(
                     (image.width() as f64 * scale).round().max(1.) as u32,
                     (image.height() as f64 * scale).round().max(1.) as u32,
+                    image::imageops::FilterType::Triangle,
+                )
+                .save(path)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if !prefs.high_resolution {
+        let scale = _scale.unwrap_or(1.0).clamp(1.0, 4.0);
+        if scale > 1.0 {
+            let image = image::open(path).map_err(|e| e.to_string())?;
+            image
+                .resize(
+                    (image.width() as f64 / scale).round().max(1.) as u32,
+                    (image.height() as f64 / scale).round().max(1.) as u32,
                     image::imageops::FilterType::Triangle,
                 )
                 .save(path)
@@ -328,6 +343,17 @@ fn finish_image(app: &AppHandle, path: &Path) -> Result<MediaAsset, String> {
                 format!("截图已保存在历史中，但自动保存失败：{e}"),
             );
         }
+    }
+    #[cfg(target_os = "windows")]
+    if prefs.sound {
+        let helper = app
+            .path()
+            .resource_dir()
+            .map_err(|e| e.to_string())?
+            .join("capture_selector.exe");
+        let mut command = Command::new(helper);
+        crate::media_windows::hidden(&mut command);
+        let _ = command.arg("--beep").spawn();
     }
     Ok(item)
 }
@@ -519,6 +545,7 @@ pub(crate) struct NativeSelection {
     pub(crate) display: Option<u32>,
     pub(crate) rect: Option<CaptureRect>,
     pub(crate) window_id: Option<u32>,
+    scale: Option<f64>,
 }
 impl NativeSelection {
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -772,7 +799,7 @@ pub async fn capture_screen(
                     let helper=app.path().resource_dir().map_err(|e|e.to_string())?.join(if cfg!(target_os="windows"){"capture_selector.exe"}else{"capture_selector"});
                     if !helper.is_file(){return Err("原生截图选区工具不可用，请重新安装客户端".into());}
                     let locale=app.state::<Db>().get_setting("locale").unwrap_or_else(||"zh-CN".into());
-                    let mut command=Command::new(helper);command.args(["--mode",&options.mode,"--locale",&locale]);
+                    let mut command=Command::new(helper);command.args(["--mode",&options.mode,"--locale",&locale,"--video",if video{"1"}else{"0"}]);
                     app.state::<CaptureState>().selecting.store(true,Ordering::SeqCst);
                     let output=run_capture_child(&app,command);
                     app.state::<CaptureState>().selecting.store(false,Ordering::SeqCst);
@@ -800,7 +827,7 @@ pub async fn capture_screen(
                 if !output.status.success()&&!output.stderr.is_empty(){return Err(format!("截图或录屏未完成：{}",String::from_utf8_lossy(&output.stderr).trim()));}
                 return Ok(None);
             }
-            if video{register_video(&app,&path).map(Some)}else{let item=finish_image(&app,&path);let _=std::fs::remove_file(&path);item.map(Some)}
+            if video{register_video(&app,&path).map(Some)}else{let item=finish_image(&app,&path,selection.as_ref().and_then(|s|s.scale));let _=std::fs::remove_file(&path);item.map(Some)}
         })();
         if restore_studio || !matches!(result,Ok(None)){let _=main_thread(&app,show_capture_studio);}
         result

@@ -13,6 +13,7 @@ import Preferences from "./Preferences";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./capture.css";
 
+const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 type Tab = "long" | "capture" | "record" | "transfer" | "library" | "edit";
 export default function Studio() {
   const { locale } = useI18n();
@@ -444,17 +445,8 @@ export default function Studio() {
               />
             </div>
             <p className="capture-footnote">
-              {l(
-                "按 Esc 取消选区。首次截图需要允许屏幕录制权限。",
-                "Press Esc to cancel selection. Screen Recording permission is required on first use.",
-              )}
-              <button
-                onClick={() =>
-                  mediaApi.permission().catch((e) => setError(String(e)))
-                }
-              >
-                {l("打开权限设置", "Open permissions")}
-              </button>
+              {isMac?l("按 Esc 取消选区。首次截图需要允许屏幕录制权限。","Press Esc to cancel. Allow Screen Recording on first use."):l("截图时可按 1 / 2 / 3 切换模式，按 Esc 取消。录屏可再次按快捷键结束。","Press 1 / 2 / 3 to switch modes or Esc to cancel. Press the recording shortcut again to stop.")}
+              {isMac&&<button onClick={()=>mediaApi.permission().catch(e=>setError(String(e)))}>{l("打开权限设置","Open permissions")}</button>}
             </p>
             {tab === "capture" && <Preferences />}
           </section>

@@ -244,7 +244,7 @@ final class ScreenshotSelector: NSObject {
         guard !finished,let rect=selectedRect,rect.width>=2,rect.height>=2 else{return}
         let q=quartzRect(rect,primaryTop:primaryTop).integral
         var output:[String:Any]=["cancelled":false,"mode":mode.rawValue,"display":(screens.firstIndex(of:activeScreen) ?? 0)+1,
-            "rect":["x":q.minX,"y":q.minY,"width":q.width,"height":q.height]]
+            "scale":activeScreen.backingScaleFactor,"rect":["x":q.minX,"y":q.minY,"width":q.width,"height":q.height]]
         if mode == .window {guard let id=hovered?.id else{return};output["windowId"]=id}
         finish(output)
     }

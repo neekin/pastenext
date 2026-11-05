@@ -128,6 +128,7 @@ fn build_windows_selector() {
             "gdi32.lib",
             "msimg32.lib",
             "dwmapi.lib",
+            "shcore.lib",
         ])
         .status()
         .expect("Unable to compile Windows capture selector");
