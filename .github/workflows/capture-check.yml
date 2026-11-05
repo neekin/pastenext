@@ -1,0 +1,47 @@
+name: capture-check
+on:
+  push:
+    branches: ['codex/**']
+    paths: ['src-tauri/**', 'src/capture/**', 'scripts/**', 'package.json', 'pnpm-lock.yaml', '.github/workflows/capture-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Prepare packaged Windows media runtime
+        run: python scripts/setup-windows-media.py
+      - name: Frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+      - name: Native unit and Windows media tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1
+      - name: Native selection interactions
+        shell: pwsh
+        run: |
+          & src-tauri/capture_selector.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Windows selector self-test failed" }
+      - name: Build Windows client
+        run: pnpm tauri build --debug --bundles nsis
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-capture-check
+          path: |
+            src-tauri/target/debug/bundle/nsis/*.exe
+            src-tauri/ffmpeg/runtime.json

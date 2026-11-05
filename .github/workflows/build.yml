@@ -51,6 +51,10 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare Windows media runtime
+        if: runner.os == 'Windows'
+        run: python scripts/setup-windows-media.py
+
       # Windows 代码签名改为「构建后由 SignPath 提交签名」(见下方 Windows 专属步骤),
       # 不再在 build 阶段注入 PFX/thumbprint。未配置 SIGNPATH_* Secrets 时自动回退为未签名产物。
 
@@ -95,6 +99,8 @@ jobs:
           $exes = Get-ChildItem "$rel/*.exe"
           if ($exes.Count -eq 0) { throw "release 目录未找到主程序 exe" }
           $exes | Copy-Item -Destination sign-input/portable/
+          Copy-Item "src-tauri/capture_selector.exe" sign-input/portable/ -Force
+          Copy-Item "src-tauri/ffmpeg" sign-input/portable/ -Recurse -Force
           # 统一品牌名:Tauri 2 二进制名来自 Cargo 包名(paste-next),重命名为 PasteNext.exe
           $src = Join-Path sign-input/portable "paste-next.exe"
           if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path sign-input/portable "PasteNext.exe") -Force }
@@ -156,6 +162,8 @@ jobs:
           $exes = Get-ChildItem "$rel/*.exe"
           if ($exes.Count -eq 0) { throw "release 目录未找到主程序 exe" }
           $exes | Copy-Item -Destination $tmp/
+          Copy-Item "src-tauri/capture_selector.exe" $tmp/ -Force
+          Copy-Item "src-tauri/ffmpeg" $tmp/ -Recurse -Force
           $src = Join-Path $tmp "paste-next.exe"
           if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path $tmp "PasteNext.exe") -Force }
           New-Item -ItemType File -Force -Path (Join-Path $tmp "portable.mode") | Out-Null
