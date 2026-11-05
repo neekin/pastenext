@@ -6,13 +6,13 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
-## Capture studio (development preview)
+## Capture studio (v1.0.27)
 
 Screenshots, annotations, OCR, long-image stitching, pinned images, recording and local phone transfers now have native capture entry points on macOS and Windows. Switch region, window and display modes directly in the capture toolbar or with **1 / 2 / 3**, with a 60% outside dim mask.
 
 Defaults use **Command+Shift+A / R / G** on macOS and **Ctrl+Shift+A / R / G** on Windows for capture, recording start/stop and long screenshots. Unrelated custom shortcuts are preserved.
 
-Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Stable downloads are still v1.0.26; new capture features require a preview build.
+Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Capture features are included in [v1.0.27](https://github.com/neekin/pastenext/releases/tag/v1.0.27) and later stable releases.
 
 ## Features
 

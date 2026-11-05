@@ -16,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = Path.home() / ".local/share/pastenext/signing"
+ROOT = Path(os.environ.get("PASTENEXT_SIGNING_DIR", Path.home() / ".local/share/pastenext/signing"))
 KEYCHAIN = ROOT / "local-signing.keychain-db"
 PASSWORD = ROOT / "keychain-password"
 CERT = ROOT / "certificate.pem"

@@ -30,6 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Check release version
+        run: python scripts/check-release-version.py "${{ github.ref_name }}"
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11
@@ -47,9 +54,12 @@ jobs:
         with:
           workspaces: src-tauri
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install frontend deps
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test
 
       - name: Prepare Windows media runtime
         if: runner.os == 'Windows'
@@ -71,7 +81,14 @@ jobs:
           PASTENEXT_SIGN_SECRET: ${{ secrets.PASTENEXT_SIGN_SECRET }}
           PASTENEXT_MAIL_SECRET: ${{ secrets.PASTENEXT_MAIL_SECRET }}
           PASTENEXT_PURCHASE_URL: ${{ secrets.PASTENEXT_PURCHASE_URL }}
-        run: pnpm tauri build --target ${{ matrix.target }}
+        run: pnpm tauri build --target ${{ matrix.target }} ${{ runner.os == 'macOS' && '--bundles app' || '' }}
+
+      - name: Sign and package macOS with the persistent identity
+        if: runner.os == 'macOS'
+        env:
+          PASTENEXT_MACOS_CERTIFICATE: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE }}
+          PASTENEXT_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE_PASSWORD }}
+        run: python3 scripts/package-macos-ci.py --target ${{ matrix.target }}
 
       # ---- Windows 专属:构建后代码签名(SignPath 免费 OSS 签名)----
       # 仅当 runner 为 Windows 且配置了 SIGNPATH_API_TOKEN 时启用签名链路;
@@ -177,7 +194,7 @@ jobs:
           name: PasteNext-macos-${{ matrix.target }}
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+          if-no-files-found: error
 
       - name: Upload artifacts (Windows)
         if: runner.os == 'Windows'
@@ -188,6 +205,7 @@ jobs:
             PasteNext*.msi
             PasteNext*-setup.exe
             PasteNext*-portable.zip
+          if-no-files-found: error
 
   release:
     # 推送 v* 标签时自动创建 GitHub Release 并附上安装包
@@ -197,8 +215,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          pattern: PasteNext-*
           merge-multiple: true
           path: dist
 
@@ -215,6 +235,10 @@ jobs:
           find dist -name "PasteNext*portable*.zip" -exec cp {} out/PasteNext-Windows-x64-portable.zip \;
           test -f out/PasteNext-macOS-arm64.dmg || { echo "arm64 DMG missing!"; find dist -type f | head -30; exit 1; }
           test -f out/PasteNext-macOS-intel.dmg || { echo "intel DMG missing!"; find dist -type f | head -30; exit 1; }
+          test -f out/PasteNext-Windows-x64.msi || { echo "Windows MSI missing!"; exit 1; }
+          test -f out/PasteNext-Windows-x64-setup.exe || { echo "Windows setup missing!"; exit 1; }
+          test -f out/PasteNext-Windows-x64-portable.zip || { echo "Windows portable missing!"; exit 1; }
+          (cd out && sha256sum *.dmg *.msi *.exe *.zip > SHA256SUMS)
           ls -la out/
 
       - uses: softprops/action-gh-release@v2
@@ -224,4 +248,6 @@ jobs:
             out/PasteNext-Windows-*.msi
             out/PasteNext-Windows-*.exe
             out/PasteNext-Windows-*.zip
-          generate_release_notes: true
+            out/SHA256SUMS
+          body_path: docs/releases/${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
