@@ -37,6 +37,13 @@ jobs:
       - name: Check release version
         run: python scripts/check-release-version.py "${{ github.ref_name }}"
 
+      - name: Verify persistent macOS identity before compilation
+        if: runner.os == 'macOS'
+        env:
+          PASTENEXT_MACOS_CERTIFICATE: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE }}
+          PASTENEXT_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.PASTENEXT_MACOS_CERTIFICATE_PASSWORD }}
+        run: python3 scripts/package-macos-ci.py --check-signing
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11
