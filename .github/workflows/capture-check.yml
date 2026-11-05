@@ -39,6 +39,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows selector self-test failed" }
       - name: Build Windows client
         run: pnpm tauri build --debug --bundles nsis --config src-tauri/tauri.preview.conf.json
+      - name: Install and exercise native Windows client
+        shell: pwsh
+        run: ./scripts/test-windows-client.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -46,3 +49,4 @@ jobs:
           path: |
             src-tauri/target/debug/bundle/nsis/*.exe
             src-tauri/ffmpeg/runtime.json
+            ${{ runner.temp }}/pastenext-native-report/*
