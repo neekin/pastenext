@@ -44,5 +44,5 @@ try{
  if(!report.download||!report.upload||!report.revoked)throw Error('Installed LAN transfer checks failed');
  report.bundle=await invoke('plugin:app|identifier');if(report.bundle!=='io.pastenext.preview')throw Error('Expected an isolated Preview application');
  report.stage='complete';report.ok=true;console.log(JSON.stringify(report));
-}catch(e){report.ok=false;report.error=String(e);console.error(JSON.stringify(report));process.exitCode=1;}
+}catch(e){report.ok=false;report.error=String(e);try{await fs.writeFile(path.join(reportDir,'native-windows.log'),(await input('diagnose')).stdout);}catch{}console.error(JSON.stringify(report));process.exitCode=1;}
 finally{await fs.writeFile(path.join(reportDir,'native-client-report.json'),JSON.stringify(report,null,2));socket?.close();}

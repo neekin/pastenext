@@ -143,6 +143,13 @@ int wmain(int argc,wchar_t** argv){
         for(const auto& monitor:monitors)fonts.push_back(CreateFontW(-static_cast<int>(std::lround(15*monitor.scale)),0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI"));font=fonts[0];RegisterClassW(&wc);
         trace("create overlay");overlay=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,wc.lpszClassName,L"PasteNext Capture Selection",WS_POPUP,desktop.left,desktop.top,w,h,nullptr,nullptr,instance,nullptr);
         if(!overlay){std::cerr<<"Unable to open selection overlay";return 1;}POINT mouse{};GetCursorPos(&mouse);hover(mouse);trace("show overlay");ShowWindow(overlay,SW_SHOW);SetForegroundWindow(overlay);SetFocus(overlay);trace("overlay ready");
+        if(tracing){
+            DWORD session=0;ProcessIdToSessionId(GetCurrentProcessId(),&session);
+            wchar_t station[256]{},desk[256]{};DWORD needed=0;
+            GetUserObjectInformationW(GetProcessWindowStation(),UOI_NAME,station,sizeof(station),&needed);
+            GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()),UOI_NAME,desk,sizeof(desk),&needed);
+            std::wcerr<<L"[capture-selector] hwnd="<<overlay<<L" find="<<FindWindowW(wc.lpszClassName,nullptr)<<L" visible="<<IsWindowVisible(overlay)<<L" session="<<session<<L" station="<<station<<L" desktop="<<desk<<std::endl;
+        }
         if(argc>1&&std::wstring(argv[1])==L"--self-test"){
             SendMessageW(overlay,WM_KEYDOWN,'2',0);if(mode!=1)return 2;SendMessageW(overlay,WM_KEYDOWN,'3',0);if(mode!=2)return 3;SendMessageW(overlay,WM_KEYDOWN,'1',0);
             SendMessageW(overlay,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(60,60));SendMessageW(overlay,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(240,180));SendMessageW(overlay,WM_LBUTTONUP,0,MAKELPARAM(240,180));

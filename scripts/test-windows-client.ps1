@@ -20,6 +20,7 @@ try {
  & node scripts/test-windows-client.mjs $report
  if($LASTEXITCODE -ne 0){throw 'Installed Windows native client smoke test failed'}
 } catch {
+ Get-Content "$report/native-windows.log" -ErrorAction SilentlyContinue
  Get-Content "$report/client-stderr.log" -ErrorAction SilentlyContinue
  Get-Content "$report/client-stdout.log" -ErrorAction SilentlyContinue
  Get-CimInstance Win32_Process | Where-Object {$_.ParentProcessId -eq $client.Id} | Select-Object Name,ProcessId,CommandLine | Format-List | Out-String | Tee-Object "$report/child-processes.log" | Write-Host
