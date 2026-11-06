@@ -6,11 +6,11 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
-## Capture studio (v1.0.27)
+## Capture studio (v1.0.28)
 
 Screenshots, annotations, OCR, long-image stitching, pinned images, recording and local phone transfers now have native capture entry points on macOS and Windows. Switch region, window and display modes directly in the capture toolbar or with **1 / 2 / 3**, with a 60% outside dim mask.
 
-Development builds use **Command+Shift+A / R / G** on macOS and **Ctrl+Alt+A / R / G** on Windows for capture, recording start/stop and long screenshots. The Windows panel remains **Ctrl+Alt+V**. Old capture defaults migrate once; unrelated custom shortcuts are preserved. Published v1.0.27 still uses the previous Windows Ctrl+Shift defaults.
+v1.0.28 uses **Command+Shift+A / R / G** on macOS and **Ctrl+Alt+A / R / G** on Windows for capture, recording start/stop and long screenshots. The Windows panel remains **Ctrl+Alt+V**. Old capture defaults migrate once; unrelated custom shortcuts are preserved. The native selector is initialized ahead of time to reduce the wait after pressing a shortcut.
 
 Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Capture features are included in [v1.0.27](https://github.com/neekin/pastenext/releases/tag/v1.0.27) and later stable releases.
 
@@ -92,7 +92,7 @@ Pushing a `v*` tag triggers GitHub Actions (`.github/workflows/build.yml`) to bu
 
 Download them from the Artifacts section of the corresponding run (PasteNext-macos-*/PasteNext-windows-*).
 
-Keep the package, Tauri and Cargo versions in sync and run `python3 scripts/check-release-version.py v1.0.27` before tagging. Release builds require the repository's `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`. macOS also requires encrypted `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` secrets to reuse the persistent identity. The workflow verifies signatures inside each DMG and publishes `SHA256SUMS`.
+Keep the package, Tauri and Cargo versions in sync and run `python3 scripts/check-release-version.py v1.0.28` before tagging. Release builds require the repository's `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`. macOS also requires encrypted `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` secrets to reuse the persistent identity. The workflow verifies signatures inside each DMG and publishes `SHA256SUMS`.
 
 ## Roadmap
 

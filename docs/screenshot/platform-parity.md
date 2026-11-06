@@ -3,10 +3,10 @@
 Current work: original native macOS and Windows selectors; shared editor, library,
 OCR entry points, image exports, pinning, long-image stitching and LAN transfers.
 
-- Development defaults: Command+Shift+A / R / G on macOS; Ctrl+Alt+A / R / G on
+- v1.0.28 defaults: Command+Shift+A / R / G on macOS; Ctrl+Alt+A / R / G on
   Windows, alongside Ctrl+Alt+V for the clipboard panel. Existing capture defaults
   migrate once. Custom bindings and later choices of the old combinations persist.
-  Published v1.0.27 still uses the previous Windows Ctrl+Shift defaults.
+  Earlier v1.0.27 installations upgrade from the previous Windows Ctrl+Shift defaults.
 - Selection startup: prelaunch one idle native helper, initialize UI libraries,
   and send a fresh request over its stdin pipe when capture begins. Screen content
   is read only after that request. Closed/crashed workers fall back to a new helper;
@@ -36,7 +36,7 @@ OCR entry points, image exports, pinning, long-image stitching and LAN transfers
 
 macOS: native AppKit tests cover negative / above-primary display coordinates,
 mode buttons, keyboard switching, moving/resizing, rendered shade and confirmation.
-27 Rust tests and frontend build/tests pass locally. Native optimized preview is
+28 Rust tests and frontend build/tests pass locally. Native optimized preview is
 rebuilt with the existing fixed signing identity.
 
 Windows: `capture-check` workflow builds on windows-latest, runs Rust tests including
