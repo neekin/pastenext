@@ -12,7 +12,7 @@ Screenshots, annotations, OCR, long-image stitching, pinned images, recording an
 
 v1.0.28 uses **Command+Shift+A / R / G** on macOS and **Ctrl+Alt+A / R / G** on Windows for capture, recording start/stop and long screenshots. The Windows panel remains **Ctrl+Alt+V**. Old capture defaults migrate once; unrelated custom shortcuts are preserved. The native selector is initialized ahead of time to reduce the wait after pressing a shortcut.
 
-Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Capture features are included in [v1.0.27](https://github.com/neekin/pastenext/releases/tag/v1.0.27) and later stable releases.
+Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Capture startup and shortcut updates are included in the [v1.0.28](https://github.com/neekin/pastenext/releases/tag/v1.0.28) stable release.
 
 ## Features
 

@@ -352,7 +352,57 @@
       "installerSHA256": "19b78d60e738431d59512fbaf620ec3410d349334f3fdea4ab4e83794f4ccf84"
     },
     "fixedWait": "Unconditional 140 ms removed; compositor flush on Windows, 32 ms only when hiding visible macOS UI",
-    "delivery": "Preview builds; published v1.0.27 remains unchanged",
+    "delivery": "Included in the v1.0.28 stable release",
     "cleanup": "Approximately 8.7 GiB of obsolete outputs and completed compiler intermediates removed; one current macOS Preview and one optimized Windows Preview installer retained"
+  },
+  "release-v1.0.28": {
+    "url": "https://github.com/neekin/pastenext/releases/tag/v1.0.28",
+    "publishedAt": "2026-11-06T12:39:42Z",
+    "sourceCommit": "3bc11285df4dd17b2d82bd298fac32c71d980a56",
+    "actionsRun": "https://github.com/neekin/pastenext/actions/runs/42217884055",
+    "allPlatformBuildsAndReleaseSucceeded": true,
+    "profile": "release (optimized); production license secrets required",
+    "windowsDefaults": "Ctrl+Alt+A / R / G; panel Ctrl+Alt+V",
+    "macOSDefaults": "Command+Shift+A / R / G",
+    "macOSCertificateSHA1": "8354B309E96DCC10F7AA8E956120F4FBA4988DEF",
+    "bothDmgEmbeddedSignaturesAndVersionsVerified": true,
+    "installedWindowsClientValidationRun": "https://github.com/neekin/pastenext/actions/runs/42217883607",
+    "publicDownloadChecksumsVerified": [
+      "PasteNext-macOS-arm64.dmg",
+      "PasteNext-Windows-x64-portable.zip"
+    ],
+    "windowsPortableRuntimeAndLicenseNoticesVerified": true,
+    "assets": [
+      {
+        "name": "PasteNext-macOS-arm64.dmg",
+        "bytes": 4038576,
+        "sha256": "365366dc302cef36d0cf78a7b6e3ebe62999daf1c56fdb1870a3d5ec24553aa4"
+      },
+      {
+        "name": "PasteNext-macOS-intel.dmg",
+        "bytes": 4356255,
+        "sha256": "3be19812ac5216e1eb07025636f0d5a8312a25b486c2f8f566603af68c897226"
+      },
+      {
+        "name": "PasteNext-Windows-x64-portable.zip",
+        "bytes": 60489723,
+        "sha256": "db12cc9c8e070fde897cf101ffc37e950b52cde78a1a645d9d2054fc9a3bc623"
+      },
+      {
+        "name": "PasteNext-Windows-x64-setup.exe",
+        "bytes": 44281652,
+        "sha256": "67785911745539adbe19b8a3551ab4fe0f7ea85ccca1c005bf1e7ffcca16e4a5"
+      },
+      {
+        "name": "PasteNext-Windows-x64.msi",
+        "bytes": 58990592,
+        "sha256": "6dbeda9336115935f34638bbe1c1ed5d95798783f4b55304bf653d9883bc633b"
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 475,
+        "sha256": null
+      }
+    ]
   }
 }
