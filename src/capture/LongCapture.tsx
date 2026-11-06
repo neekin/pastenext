@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../i18n";
 import { mediaApi, type MediaAsset } from "./api";
 import { HotkeyRecorder } from "../settings/Settings";
+import { SCROLL_HOTKEY } from "./hotkeys";
 let scrollDraft: { frames: MediaAsset[]; overlaps: (number | null)[] } = {
   frames: [],
   overlaps: [],
@@ -138,7 +139,7 @@ export default function LongCapture({
         <span>{l("打开长截图", "Open scroll capture")}</span>
         <HotkeyRecorder
           value={hotkey}
-          defaultValue="CmdOrCtrl+Shift+G"
+          defaultValue={SCROLL_HOTKEY}
           onSave={onHotkey}
         />
       </div>

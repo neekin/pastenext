@@ -11,6 +11,9 @@ public static class NativeInput {
  // Keep null in C#: PowerShell converts a null string argument to an empty title.
  public static IntPtr SelectorWindow() { return FindWindow("PasteNextCaptureSelector",null); }
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+ [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+ [DllImport("user32.dll")] public static extern bool UpdateWindow(IntPtr window);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
  public delegate bool EnumProc(IntPtr window,IntPtr data);
  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc proc,IntPtr data);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr window,StringBuilder value,int size);
@@ -29,14 +32,29 @@ public static class NativeInput {
 }
 '@
 function Key([byte]$value) { [NativeInput]::keybd_event($value,0,0,[UIntPtr]::Zero); [NativeInput]::keybd_event($value,0,2,[UIntPtr]::Zero) }
-function Shortcut([byte]$value) {
- [NativeInput]::keybd_event(0x11,0,0,[UIntPtr]::Zero);[NativeInput]::keybd_event(0x10,0,0,[UIntPtr]::Zero)
+function Shortcut([byte]$value,[byte]$modifier=0x12) {
+ [NativeInput]::keybd_event(0x11,0,0,[UIntPtr]::Zero);[NativeInput]::keybd_event($modifier,0,0,[UIntPtr]::Zero)
  Key $value
- [NativeInput]::keybd_event(0x10,0,2,[UIntPtr]::Zero);[NativeInput]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
+ [NativeInput]::keybd_event($modifier,0,2,[UIntPtr]::Zero);[NativeInput]::keybd_event(0x11,0,2,[UIntPtr]::Zero)
+}
+function CaptureLatency([byte]$modifier=0x12) {
+ $timer=[System.Diagnostics.Stopwatch]::StartNew()
+ Shortcut 0x41 $modifier
+ do {
+  $window=[NativeInput]::SelectorWindow()
+  if($window -ne [IntPtr]::Zero -and [NativeInput]::IsWindowVisible($window) -and [NativeInput]::GetForegroundWindow() -eq $window) {
+   [void][NativeInput]::UpdateWindow($window)
+   $timer.Stop();return $timer.Elapsed.TotalMilliseconds
+  }
+  Start-Sleep -Milliseconds 1
+ } while($timer.Elapsed.TotalSeconds -lt 15)
+ throw 'Capture did not become visible and accept keyboard focus within 15 seconds'
 }
 switch ($Action) {
  'diagnose' { [NativeInput]::Windows() }
  'probe' { [NativeInput]::SelectorWindow().ToInt64() }
+ 'latency' { CaptureLatency }
+ 'baseline-latency' { CaptureLatency 0x10 }
  'capture' { Shortcut 0x41 }
  'record' { Shortcut 0x52 }
  'region' {

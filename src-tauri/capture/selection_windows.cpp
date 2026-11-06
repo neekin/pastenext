@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <sstream>
 #include <vector>
 
 struct Target { HWND handle; RECT rect; };
@@ -24,7 +25,8 @@ static HGDIOBJ oldBitmap=nullptr;
 static int mode=0, monitorIndex=0, hoverIndex=-1, drag=-1;
 static POINT start{};
 static RECT original{};
-static bool english=false, finished=false, video=false, tracing=false;
+static bool english=false, finished=false, video=false, tracing=false, measureStartup=false, drewFrame=false;
+static BOOL CALLBACK enumerate(HWND,LPARAM);
 static void trace(const char* stage){if(tracing)std::cerr<<"[capture-selector] "<<stage<<std::endl;}
 static std::string output="{\"cancelled\":true}";
 static HFONT font=nullptr;
@@ -53,7 +55,7 @@ static void hover(POINT p){
     hoverIndex=-1;
     if(mode==1)for(size_t i=0;i<targets.size();++i)if(PtInRect(&targets[i].rect,p)){hoverIndex=static_cast<int>(i);break;}
 }
-static void switchMode(int next){mode=next;region={};drag=-1;ReleaseCapture();POINT p{};GetCursorPos(&p);hover(p);InvalidateRect(overlay,nullptr,FALSE);}
+static void switchMode(int next){mode=next;if(mode==1&&targets.empty())EnumWindows(enumerate,0);region={};drag=-1;ReleaseCapture();POINT p{};GetCursorPos(&p);hover(p);InvalidateRect(overlay,nullptr,FALSE);}
 static void box(HDC dc,RECT r,COLORREF color,int radius=0){HBRUSH b=CreateSolidBrush(color);HGDIOBJ old=SelectObject(dc,b);HGDIOBJ pen=SelectObject(dc,GetStockObject(NULL_PEN));if(radius)RoundRect(dc,r.left,r.top,r.right,r.bottom,radius,radius);else Rectangle(dc,r.left,r.top,r.right,r.bottom);SelectObject(dc,old);SelectObject(dc,pen);DeleteObject(b);}
 static void label(HDC dc,RECT r,const wchar_t* value,COLORREF color=RGB(245,245,250)){SetTextColor(dc,color);DrawTextW(dc,value,-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);}
 static std::vector<POINT> handles(RECT r){return {{r.left,r.top},{(r.left+r.right)/2,r.top},{r.right,r.top},{r.left,(r.top+r.bottom)/2},{r.right,(r.top+r.bottom)/2},{r.left,r.bottom},{(r.left+r.right)/2,r.bottom},{r.right,r.bottom}};}
@@ -79,6 +81,7 @@ static void paint(HWND hwnd){
     }
     RECT hint{left+ui(8),top+ui(57),left+ui(562),top+ui(88)};label(buffer,hint,mode==0?text(L"拖动框选或调整边角 · 1/2/3 切换 · 回车截取",L"Drag to select / resize · 1/2/3 switch modes · Enter captures"):mode==1?text(L"移动鼠标选窗口，单击截取 · 1/2/3 切换",L"Point to a window and click · 1/2/3 switch modes"):text(L"单击目标屏幕截取 · 1/2/3 切换 · Esc 取消",L"Click a display · 1/2/3 switch modes · Esc cancels"),RGB(185,188,205));
     BitBlt(dc,0,0,w,h,buffer,0,0,SRCCOPY);EndPaint(hwnd,&ps);
+    if(!drewFrame){drewFrame=true;if(tracing||measureStartup)std::cerr<<"[capture-selector] first-draw"<<std::endl;if(measureStartup)PostMessageW(hwnd,WM_CLOSE,0,0);}
 }
 static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM key,LPARAM data){
     switch(message){
@@ -95,11 +98,13 @@ static LRESULT CALLBACK procedure(HWND hwnd,UINT message,WPARAM key,LPARAM data)
             if(drag==0&&PtInRect(&region,p))drag=1;
         }if(drag==0)region={};SetCapture(hwnd);InvalidateRect(hwnd,nullptr,FALSE);return 0;}
     case WM_MOUSEMOVE:{
+        RECT before=region;int oldMonitor=monitorIndex,oldHover=hoverIndex;
         POINT p=point(data);if(drag>=0){
             if(drag==0)region=between(start,p);
             else if(drag==1){region=original;LONG dx=std::clamp<LONG>(p.x-start.x,desktop.left-original.left,desktop.right-original.right),dy=std::clamp<LONG>(p.y-start.y,desktop.top-original.top,desktop.bottom-original.bottom);OffsetRect(&region,dx,dy);}
             else {int i=drag-2;POINT a{original.left,original.top},b{original.right,original.bottom};if(i==0||i==3||i==5)a.x=p.x;if(i==2||i==4||i==7)b.x=p.x;if(i<=2)a.y=p.y;if(i>=5)b.y=p.y;region=between(a,b);}
-        }else {POINT client{GET_X_LPARAM(data),GET_Y_LPARAM(data)};if(!PtInRect(&toolbar,client))hover(p);}InvalidateRect(hwnd,nullptr,FALSE);return 0;}
+        }else {POINT client{GET_X_LPARAM(data),GET_Y_LPARAM(data)};if(!PtInRect(&toolbar,client))hover(p);}
+        if(!EqualRect(&before,&region)||oldMonitor!=monitorIndex||oldHover!=hoverIndex)InvalidateRect(hwnd,nullptr,FALSE);return 0;}
     case WM_LBUTTONUP:drag=-1;ReleaseCapture();return 0;
     case WM_RBUTTONDOWN:cancel();return 0;
     case WM_CLOSE:cancel();return 0;
@@ -124,9 +129,18 @@ static LRESULT CALLBACK clickProcedure(HWND hwnd,UINT msg,WPARAM key,LPARAM data
     if(msg==WM_DESTROY){PostQuitMessage(0);return 0;}return DefWindowProcW(hwnd,msg,key,data);
 }
 int wmain(int argc,wchar_t** argv){
-    for(int i=1;i<argc;++i)if(std::wstring(argv[i])==L"--trace")tracing=true;
+    bool warm=false;
+    for(int i=1;i<argc;++i){auto value=std::wstring(argv[i]);if(value==L"--trace")tracing=true;if(value==L"--warm")warm=true;if(value==L"--measure-startup")measureStartup=true;}
     trace("start");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if(warm){
+        LoadCursorW(nullptr,IDC_CROSS);GetStockObject(DEFAULT_GUI_FONT);
+        if(tracing||measureStartup)std::cerr<<"[capture-selector] warm-ready"<<std::endl;
+        std::string request,selected,locale;int recording=0;
+        if(!std::getline(std::cin,request))return 0;
+        std::istringstream input(request);if(!(input>>selected>>locale>>recording))return 1;
+        mode=selected=="window"?1:selected=="screen"?2:0;english=locale=="en";video=recording==1;
+    }
     for(int i=1;i+1<argc;++i){std::wstring a=argv[i];if(a==L"--mode")mode=std::wstring(argv[i+1])==L"window"?1:std::wstring(argv[i+1])==L"screen"?2:0;if(a==L"--locale")english=std::wstring(argv[i+1])==L"en";if(a==L"--video")video=std::wstring(argv[i+1])==L"1";}
     if(argc>1&&std::wstring(argv[1])==L"--beep"){MessageBeep(MB_OK);return 0;}
     HINSTANCE instance=GetModuleHandleW(nullptr);WNDCLASSW wc{};wc.hInstance=instance;wc.hCursor=LoadCursorW(nullptr,IDC_CROSS);wc.lpszClassName=L"PasteNextCaptureSelector";wc.lpfnWndProc=procedure;
@@ -136,7 +150,8 @@ int wmain(int argc,wchar_t** argv){
     }else{
         desktop={GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};desktop.right=desktop.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);desktop.bottom=desktop.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
         int w=desktop.right-desktop.left,h=desktop.bottom-desktop.top;if(w<=0||h<=0||static_cast<long long>(w)*h>128000000){std::cerr<<"Display dimensions are unsupported";return 1;}
-        trace("enumerate monitors");EnumDisplayMonitors(nullptr,nullptr,enumerateMonitor,0);if(monitors.empty())return 1;std::stable_sort(monitors.begin(),monitors.end(),[](const Monitor&a,const Monitor&b){return a.primary&&!b.primary;});trace("enumerate windows");EnumWindows(enumerate,0);trace("windows enumerated");
+        trace("enumerate monitors");EnumDisplayMonitors(nullptr,nullptr,enumerateMonitor,0);if(monitors.empty())return 1;std::stable_sort(monitors.begin(),monitors.end(),[](const Monitor&a,const Monitor&b){return a.primary&&!b.primary;});
+        if(mode==1){trace("enumerate windows");EnumWindows(enumerate,0);trace("windows enumerated");}
         trace("snapshot begin");HDC screen=GetDC(nullptr);snapshot=CreateCompatibleDC(screen);bitmap=CreateCompatibleBitmap(screen,w,h);oldBitmap=SelectObject(snapshot,bitmap);BitBlt(snapshot,0,0,w,h,screen,desktop.left,desktop.top,SRCCOPY|CAPTUREBLT);shadedSnapshot=CreateCompatibleDC(screen);shadedBitmap=CreateCompatibleBitmap(screen,w,h);oldShaded=SelectObject(shadedSnapshot,shadedBitmap);BitBlt(shadedSnapshot,0,0,w,h,snapshot,0,0,SRCCOPY);
         HDC shade=CreateCompatibleDC(screen);HBITMAP black=CreateCompatibleBitmap(screen,1,1);auto old=SelectObject(shade,black);box(shade,{0,0,1,1},RGB(0,0,0));BLENDFUNCTION blend{AC_SRC_OVER,0,153,0};AlphaBlend(shadedSnapshot,0,0,w,h,shade,0,0,1,1,blend);SelectObject(shade,old);DeleteObject(black);DeleteDC(shade);
         drawing=CreateCompatibleDC(screen);drawingBitmap=CreateCompatibleBitmap(screen,w,h);oldDrawing=SelectObject(drawing,drawingBitmap);ReleaseDC(nullptr,screen);trace("snapshot complete");

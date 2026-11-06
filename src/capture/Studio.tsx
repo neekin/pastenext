@@ -12,6 +12,7 @@ import LongCapture from "./LongCapture";
 import Preferences from "./Preferences";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./capture.css";
+import { CAPTURE_HOTKEY, RECORD_HOTKEY, SCROLL_HOTKEY } from "./hotkeys";
 
 const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 type Tab = "long" | "capture" | "record" | "transfer" | "library" | "edit";
@@ -24,10 +25,10 @@ export default function Studio() {
     [shared, setShared] = useState<MediaAsset | null>(null);
   const [exporting, setExporting] = useState(false),
     [videoQuality, setVideoQuality] = useState(90);
-  const [scrollKey, setScrollKey] = useState("CmdOrCtrl+Shift+G");
+  const [scrollKey, setScrollKey] = useState(SCROLL_HOTKEY);
   const [hotkeyErrors, setHotkeyErrors] = useState<Record<string, string>>({});
-  const [captureKey, setCaptureKey] = useState("CmdOrCtrl+Shift+A"),
-    [recordKey, setRecordKey] = useState("CmdOrCtrl+Shift+R");
+  const [captureKey, setCaptureKey] = useState(CAPTURE_HOTKEY),
+    [recordKey, setRecordKey] = useState(RECORD_HOTKEY);
   const [options, setOptions] = useState<CaptureOptions>({
     mode: "region",
     delay: 0,
@@ -56,9 +57,9 @@ export default function Studio() {
       .then((m) => setMonitors(Math.max(1, m.length)))
       .catch(() => {});
     void api.getSettings().then((s) => {
-      setScrollKey(s.scroll_hotkey || "CmdOrCtrl+Shift+G");
-      setCaptureKey(s.capture_hotkey || "CmdOrCtrl+Shift+A");
-      setRecordKey(s.record_hotkey || "CmdOrCtrl+Shift+R");
+      setScrollKey(s.scroll_hotkey || SCROLL_HOTKEY);
+      setCaptureKey(s.capture_hotkey || CAPTURE_HOTKEY);
+      setRecordKey(s.record_hotkey || RECORD_HOTKEY);
       if (s.capture_options) {
         try {
           const saved = JSON.parse(s.capture_options);
@@ -426,7 +427,7 @@ export default function Studio() {
               <HotkeyRecorder
                 value={tab === "record" ? recordKey : captureKey}
                 defaultValue={
-                  tab === "record" ? "CmdOrCtrl+Shift+R" : "CmdOrCtrl+Shift+A"
+                  tab === "record" ? RECORD_HOTKEY : CAPTURE_HOTKEY
                 }
                 onSave={async (accelerator) => {
                   await invoke("set_capture_hotkey", {

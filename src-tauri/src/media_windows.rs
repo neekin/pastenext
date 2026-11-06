@@ -6,6 +6,12 @@ use std::{
     process::{Command, Output},
 };
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[link(name = "dwmapi")]
+extern "system" { fn DwmFlush() -> i32; }
+pub fn flush_capture_windows() -> bool { unsafe { DwmFlush() >= 0 } }
+#[link(name = "user32")]
+extern "system" { fn AllowSetForegroundWindow(process: u32) -> i32; }
+pub fn allow_selector_foreground(process: u32) { unsafe { AllowSetForegroundWindow(process); } }
 pub fn hidden(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }

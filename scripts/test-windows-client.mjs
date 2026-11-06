@@ -13,8 +13,8 @@ async function evaluate(expression){const r=await cdp('Runtime.evaluate',{expres
 const invoke=(name,args={})=>evaluate('window.__TAURI_INTERNALS__.invoke('+JSON.stringify(name)+','+JSON.stringify(args)+')');
 try{
  report.stage='native-shortcut';
- // All application windows start hidden. Use the same OS shortcut a user uses before inspecting the WebView.
- await until(async()=>{await input('capture');await pause(400);return input('probe');},r=>Number(r.stdout.trim())>0);
+ // Timed inside one native input process, excluding PowerShell startup/compilation.
+ report.selectionReadyMs=Number((await input('latency')).stdout.trim());
  await input('region');
  report.stage='native-webview';
  const targets=await until(()=>fetch('http://127.0.0.1:9222/json/list').then(r=>r.json()),a=>a.some(t=>t.url.includes('studio.html')),45000);
@@ -22,9 +22,20 @@ try{
  socket=new WebSocket(target.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
  socket.addEventListener('message',event=>{const r=JSON.parse(event.data);if(r.id&&waiting.has(r.id)){const p=waiting.get(r.id);waiting.delete(r.id);r.error?p.reject(r.error):p.resolve(r.result);}});
  await until(()=>evaluate('!!window.__TAURI_INTERNALS__?.invoke'),Boolean);
- await invoke('get_settings');
+ const settings=await invoke('get_settings');
+ report.shortcuts={capture:settings.capture_hotkey,record:settings.record_hotkey,scroll:settings.scroll_hotkey};
+ if(settings.capture_hotkey!=='Ctrl+Alt+A'||settings.record_hotkey!=='Ctrl+Alt+R'||settings.scroll_hotkey!=='Ctrl+Alt+G')throw Error('Unexpected Windows default shortcuts');
  const image=await until(()=>invoke('media_list'),items=>items.some(a=>a.kind==='image'&&a.width===180&&a.height===120));
  report.nativeScreenshot=image.find(a=>a.kind==='image'&&a.width===180&&a.height===120);delete report.nativeScreenshot.path;
+ report.selectionReadySamplesMs=[report.selectionReadyMs];
+ for(let i=0;i<2;i++){
+  await pause(400);
+  report.selectionReadySamplesMs.push(Number((await input('latency')).stdout.trim()));
+  await input('cancel');await until(()=>invoke('capture_status'),s=>!s.busy);
+ }
+ const baseline=JSON.parse(await fs.readFile(path.join(reportDir,'baseline-latency.json'),'utf8'));
+ const median=a=>[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)];
+ report.startupComparison={baselineVersion:baseline.version,baselineMedianMs:median(baseline.selectionReadyMs),optimizedMedianMs:median(report.selectionReadySamplesMs)};
  report.stage='native-recording';
  await input('record');await until(()=>input('probe'),r=>Number(r.stdout.trim())>0);await input('screen');await pause(2400);await input('record');
  await until(()=>invoke('capture_status'),s=>!s.busy);

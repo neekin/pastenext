@@ -2,7 +2,29 @@ $ErrorActionPreference='Stop'
 $target=Join-Path $env:RUNNER_TEMP 'pastenext-preview-installed'
 $report=Join-Path $env:RUNNER_TEMP 'pastenext-native-report'
 New-Item -ItemType Directory -Force -Path $report | Out-Null
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9222'
+# Compare the previous release using real OS shortcuts on this same machine.
+$baselineInstaller=Join-Path $env:RUNNER_TEMP 'pastenext-baseline-1.0.27.exe'
+$baselineTarget=Join-Path $env:RUNNER_TEMP 'pastenext-baseline-installed'
+Invoke-WebRequest 'https://github.com/neekin/pastenext/releases/download/v1.0.27/PasteNext-Windows-x64-setup.exe' -OutFile $baselineInstaller
+$baselineInstall=Start-Process $baselineInstaller -ArgumentList @('/S',"/D=$baselineTarget") -Wait -PassThru
+if($baselineInstall.ExitCode -ne 0){throw 'Baseline installation failed'}
+$baselineExe=Get-ChildItem "$baselineTarget/*.exe" | Where-Object {$_.Name -notmatch 'uninstall|capture_selector'} | Select-Object -First 1
+Get-Process | Where-Object {try {$_.Path -eq $baselineExe.FullName} catch {$false}} | Stop-Process -Force -ErrorAction SilentlyContinue
+$baseline=Start-Process $baselineExe.FullName -PassThru
+try {
+ Start-Sleep -Seconds 2
+ $samples=@()
+ for($i=0;$i -lt 3;$i++) {
+  $samples+= [double](& powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/native-input-windows.ps1 -Action baseline-latency)
+  if($LASTEXITCODE -ne 0){throw 'Baseline capture did not open'}
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/native-input-windows.ps1 -Action cancel
+  Start-Sleep -Milliseconds 300
+ }
+ @{version='1.0.27';selectionReadyMs=$samples} | ConvertTo-Json | Set-Content "$report/baseline-latency.json"
+} finally {
+ Stop-Process -Id $baseline.Id -Force -ErrorAction SilentlyContinue
+ Get-Process capture_selector -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 $installer=Get-ChildItem 'src-tauri/target/debug/bundle/nsis/*.exe' | Select-Object -First 1
 if(-not $installer){throw 'Preview installer not found'}
 $install=Start-Process $installer.FullName -ArgumentList @('/S',"/D=$target") -Wait -PassThru

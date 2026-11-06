@@ -388,6 +388,7 @@ pub fn run() {
             app.manage(PanelAnimation::default());
             app.manage(paste::PasteState::default());
             app.manage(capture::CaptureState::default());
+            app.manage(capture::CaptureSelectorPool::default());
             app.manage(capture::CaptureHotkeys::default());
             app.manage(capture::CaptureHotkeyErrors::default());
             capture::register_hotkeys(app.handle());
@@ -398,6 +399,7 @@ pub fn run() {
             let tray_icon = tray::create(app.handle())?;
             app.manage(commands::TrayState(Mutex::new(Some(tray_icon))));
             monitor::spawn(app.handle().clone());
+            capture::prewarm_selector(app.handle());
 
             // 面板必须出现在用户当前所在的 Space(剪贴板面板的标准行为)
             if let Some(panel) = app.get_webview_window("panel") {

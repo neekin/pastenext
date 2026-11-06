@@ -55,6 +55,7 @@ final class SelectionView: NSView {
         return local.isEmpty ? nil : local
     }
     override func draw(_ dirtyRect: NSRect) {
+        defer { if let first=selector?.onFirstDraw {selector?.onFirstDraw=nil;first()} }
         // Clear first: a transparent window must restore the old hole as it moves.
         // Keep the clear hole hit-testable so dragging inside it cannot reach another app.
         NSColor.black.withAlphaComponent(0.01).setFill();bounds.fill(using:.copy)
@@ -136,6 +137,8 @@ final class ScreenshotSelector: NSObject {
     var windows:[SelectionWindow]=[]
     var views:[SelectionView]=[]
     var targets:[CaptureTarget]=[]
+    private var targetsLoaded=false
+    var onFirstDraw:(()->Void)?
     var region:NSRect?
     var hovered:CaptureTarget?
     var activeScreen:NSScreen
@@ -176,7 +179,8 @@ final class ScreenshotSelector: NSObject {
         hint.frame=NSRect(x:12,y:13,width:540,height:18);hint.alignment = .center;hint.font = .systemFont(ofSize:11)
         hint.textColor = .secondaryLabelColor;toolbar.addSubview(hint)
     }
-    func open(show:Bool=true) {
+    func loadTargets() {
+        guard !targetsLoaded else{return};targetsLoaded=true
         let raw=CGWindowListCopyWindowInfo([.optionOnScreenOnly,.excludeDesktopElements],kCGNullWindowID) as? [[String:Any]] ?? []
         targets=raw.compactMap{info in
             guard let id=info[kCGWindowNumber as String] as? UInt32,let layer=info[kCGWindowLayer as String] as? Int,layer==0,
@@ -185,6 +189,9 @@ final class ScreenshotSelector: NSObject {
                   (info[kCGWindowAlpha as String] as? Double ?? 1)>0.01 else{return nil}
             return CaptureTarget(id:id,frame:cocoaRect(frame,primaryTop:primaryTop),title:info[kCGWindowOwnerName as String] as? String ?? "")
         }
+    }
+    func open(show:Bool=true) {
+        if mode == .window {loadTargets()}
         for screen in screens {
             let w=SelectionWindow(contentRect:screen.frame,styleMask:.borderless,backing:.buffered,defer:false)
             w.selector=self;w.isReleasedWhenClosed=false;w.isOpaque=false;w.backgroundColor = .clear;w.hasShadow=false
@@ -207,21 +214,26 @@ final class ScreenshotSelector: NSObject {
         view.window?.makeFirstResponder(view);redraw()
     }
     func hover(at point:NSPoint,on screen:NSScreen) {
-        if mode == .window {hovered=targets.first(where:{$0.frame.contains(point)})}
-        if mode == .screen {activeScreen=screen}
-        redraw()
+        if mode == .window {
+            let next=targets.first(where:{$0.frame.contains(point)})
+            if next?.id != hovered?.id {hovered=next;redraw()}
+        }
+        if mode == .screen && activeScreen != screen {activeScreen=screen;redraw()}
     }
     func switchMode(_ next:CaptureMode) {
         mode=next;region=nil;hovered=nil
+        if mode == .window {loadTargets()}
         if let view=activeView {let p=view.pointer;hover(at:NSPoint(x:p.x+view.screen.frame.minX,y:p.y+view.screen.frame.minY),on:view.screen)}
         redraw()
     }
     func redraw() {
-        for (m,b) in modeButtons {b.state=m==mode ? .on:.off}
-        confirm.isEnabled=selectedRect.map{$0.width>=2 && $0.height>=2} ?? false
-        hint.stringValue=mode == .region ? l("拖动框选 · 拖动边角调整 · 1/2/3 切换 · 回车截取","Drag to select or resize · 1/2/3 switch modes · Enter captures"):
+        for (m,b) in modeButtons {let state:NSControl.StateValue=m==mode ? .on:.off;if b.state != state {b.state=state}}
+        let enabled=selectedRect.map{$0.width>=2 && $0.height>=2} ?? false
+        if confirm.isEnabled != enabled {confirm.isEnabled=enabled}
+        let message=mode == .region ? l("拖动框选 · 拖动边角调整 · 1/2/3 切换 · 回车截取","Drag to select or resize · 1/2/3 switch modes · Enter captures"):
             mode == .window ? l("移动鼠标选窗口，单击截取 · 1/2/3 切换","Point to a window and click to capture · 1/2/3 switch modes"):
             l("单击目标屏幕截取 · 1/2/3 切换 · Esc 取消","Click a display to capture · 1/2/3 switch modes · Esc cancels")
+        if hint.stringValue != message {hint.stringValue=message}
         views.forEach{$0.needsDisplay=true}
     }
     @objc func modeClicked(_ sender:NSButton){switchMode(CaptureMode.allCases[sender.tag]);activeView?.window?.makeFirstResponder(activeView)}
@@ -265,9 +277,29 @@ func argument(_ key:String)->String? {guard let i=arguments.firstIndex(of:key),a
 let app=NSApplication.shared
 app.setActivationPolicy(.accessory)
 guard !NSScreen.screens.isEmpty else{fputs("No active display\n",stderr);exit(1)}
-let selector=ScreenshotSelector(mode:CaptureMode(rawValue:argument("--mode") ?? "region") ?? .region,english:argument("--locale")=="en")
-selector.open();app.run()
-let json=try JSONSerialization.data(withJSONObject:selector.result,options:[.sortedKeys])
+let trace=arguments.contains("--trace"),measure=arguments.contains("--measure-startup")
+var selector:ScreenshotSelector?
+func showSelection(_ mode:CaptureMode,_ english:Bool) {
+    let next=ScreenshotSelector(mode:mode,english:english);selector=next
+    if trace || measure {next.onFirstDraw = {[weak next] in
+        fputs("[capture-selector] first-draw\n",stderr)
+        if measure {DispatchQueue.main.async {next?.cancel()}}
+    }}
+    next.open()
+}
+if arguments.contains("--warm") {
+    // Prime AppKit, fonts and toolbar classes without reading window lists or screen pixels.
+    _ = ScreenshotSelector(mode:.region,english:false)
+    if trace || measure {DispatchQueue.main.async {fputs("[capture-selector] warm-ready\n",stderr)}}
+    DispatchQueue.global(qos:.userInitiated).async {
+        guard let request=readLine() else{exit(0)}
+        let fields=request.split(separator:"\t")
+        guard fields.count==3,let mode=CaptureMode(rawValue:String(fields[0])) else{exit(1)}
+        DispatchQueue.main.async {showSelection(mode,fields[1]=="en")}
+    }
+} else {showSelection(CaptureMode(rawValue:argument("--mode") ?? "region") ?? .region,argument("--locale")=="en")}
+app.run()
+let json=try JSONSerialization.data(withJSONObject:selector?.result ?? ["cancelled":true],options:[.sortedKeys])
 FileHandle.standardOutput.write(json);FileHandle.standardOutput.write(Data([10]))
     }
 }

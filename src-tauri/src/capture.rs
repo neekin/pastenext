@@ -31,8 +31,39 @@ pub fn capture_hotkey_errors(app: AppHandle) -> std::collections::HashMap<String
     app.state::<CaptureHotkeyErrors>().0.lock().unwrap().clone()
 }
 
+#[cfg(target_os = "windows")]
+pub const SCREENSHOT_HOTKEY: &str = "Ctrl+Alt+A";
+#[cfg(not(target_os = "windows"))]
 pub const SCREENSHOT_HOTKEY: &str = "CmdOrCtrl+Shift+A";
+#[cfg(target_os = "windows")]
+pub const RECORD_HOTKEY: &str = "Ctrl+Alt+R";
+#[cfg(not(target_os = "windows"))]
 pub const RECORD_HOTKEY: &str = "CmdOrCtrl+Shift+R";
+#[cfg(target_os = "windows")]
+pub const SCROLL_HOTKEY: &str = "Ctrl+Alt+G";
+#[cfg(not(target_os = "windows"))]
+pub const SCROLL_HOTKEY: &str = "CmdOrCtrl+Shift+G";
+
+fn migrated_capture_hotkey(kind: &str, key: &str, windows: bool) -> String {
+    let letter = match kind { "capture" => "A", "record" => "R", _ => "G" };
+    let old_number = match kind { "capture" => "CmdOrCtrl+Shift+2", "record" => "CmdOrCtrl+Shift+9", _ => "" };
+    let legacy = key == format!("Ctrl+Shift+{letter}")
+        || key == format!("Control+Shift+{letter}")
+        || key == old_number
+        || (windows && key == format!("CmdOrCtrl+Shift+{letter}"));
+    if legacy { format!("{}+{letter}", if windows { "Ctrl+Alt" } else { "CmdOrCtrl+Shift" }) } else { key.into() }
+}
+fn migrate_capture_defaults(db: &Db, windows: bool) {
+    if db.get_setting("capture_hotkey_defaults_v2").as_deref() == Some("1") { return; }
+    for kind in ["capture", "record", "scroll"] {
+        let setting = format!("{kind}_hotkey");
+        if let Some(key) = db.get_setting(&setting) {
+            let updated = migrated_capture_hotkey(kind, &key, windows);
+            if updated != key { db.set_setting(&setting, &updated); }
+        }
+    }
+    db.set_setting("capture_hotkey_defaults_v2", "1");
+}
 
 pub fn launch(app: &AppHandle, video: bool) {
     if video && app.state::<CaptureState>().recording.load(Ordering::SeqCst) {
@@ -115,27 +146,16 @@ pub fn set_capture_hotkey(app: AppHandle, kind: String, accelerator: String) -> 
 }
 
 pub fn register_hotkeys(app: &AppHandle) {
+    migrate_capture_defaults(&app.state::<Db>(), cfg!(target_os = "windows"));
     for (kind, default) in [
         ("capture", SCREENSHOT_HOTKEY),
         ("record", RECORD_HOTKEY),
-        ("scroll", "CmdOrCtrl+Shift+G"),
+        ("scroll", SCROLL_HOTKEY),
     ] {
         let key = app
             .state::<Db>()
             .get_setting(&format!("{kind}_hotkey"))
             .unwrap_or_else(|| default.into());
-        let legacy = match kind {
-            "capture" => ["Control+Shift+A", "Ctrl+Shift+A", "CmdOrCtrl+Shift+2"],
-            "record" => ["Control+Shift+R", "Ctrl+Shift+R", "CmdOrCtrl+Shift+9"],
-            _ => ["Control+Shift+G", "Ctrl+Shift+G", ""],
-        };
-        let key = if legacy.contains(&key.as_str()) {
-            app.state::<Db>()
-                .set_setting(&format!("{kind}_hotkey"), default);
-            default.into()
-        } else {
-            key
-        };
         if let Err(e) = set_capture_hotkey(app.clone(), kind.into(), key.clone()) {
             app.state::<CaptureHotkeyErrors>().0.lock().unwrap().insert(
                 kind.into(),
@@ -143,6 +163,46 @@ pub fn register_hotkeys(app: &AppHandle) {
             );
         }
     }
+}
+
+/// One idle, single-use native helper. It initializes UI libraries but reads no
+/// screen content until a capture request arrives on its stdin pipe.
+#[derive(Default)]
+pub struct CaptureSelectorPool {
+    child: Mutex<Option<Child>>,
+    scheduled: AtomicBool,
+}
+impl Drop for CaptureSelectorPool {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.child.get_mut() {
+            if let Some(mut child) = slot.take() { let _ = child.kill(); let _ = child.wait(); }
+        }
+    }
+}
+fn selector_command(app: &AppHandle) -> Result<Command, String> {
+    let helper = app.path().resource_dir().map_err(|e| e.to_string())?
+        .join(if cfg!(target_os = "windows") { "capture_selector.exe" } else { "capture_selector" });
+    if !helper.is_file() { return Err("原生截图选区工具不可用，请重新安装客户端".into()); }
+    let mut command = Command::new(helper);
+    command.arg("--warm").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(debug_assertions)] command.arg("--trace");
+    #[cfg(target_os = "windows")] crate::media_windows::hidden(&mut command);
+    Ok(command)
+}
+pub fn prewarm_selector(app: &AppHandle) {
+    if !cfg!(any(target_os = "macos", target_os = "windows")) { return; }
+    let pool = app.state::<CaptureSelectorPool>();
+    if pool.child.lock().unwrap().is_some() || pool.scheduled.swap(true, Ordering::SeqCst) { return; }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(150));
+        let pool = app.state::<CaptureSelectorPool>();
+        if !app.state::<CaptureState>().busy.load(Ordering::SeqCst) {
+            let mut slot = pool.child.lock().unwrap();
+            if slot.is_none() { *slot = selector_command(&app).and_then(|mut c| c.spawn().map_err(|e| e.to_string())).ok(); }
+        }
+        pool.scheduled.store(false, Ordering::SeqCst);
+    });
 }
 
 #[derive(Default)]
@@ -174,6 +234,7 @@ impl Drop for CaptureGuard {
         s.recording.store(false, Ordering::SeqCst);
         s.busy.store(false, Ordering::SeqCst);
         let _ = self.0.emit("capture-state", false);
+        prewarm_selector(&self.0);
     }
 }
 
@@ -601,7 +662,7 @@ fn collect_child_output(
         output
     })
 }
-fn run_capture_child(app: &AppHandle, mut command: Command) -> Result<Option<Output>, String> {
+fn run_capture_child(app: &AppHandle, mut command: Command, selection_request: Option<&str>) -> Result<Option<Output>, String> {
     let state = app.state::<CaptureState>();
     #[cfg(target_os = "windows")]
     {
@@ -613,11 +674,24 @@ fn run_capture_child(app: &AppHandle, mut command: Command) -> Result<Option<Out
         if state.cancelled.load(Ordering::SeqCst) {
             return Ok(None);
         }
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut parked = if selection_request.is_some() { app.state::<CaptureSelectorPool>().child.lock().unwrap().take() } else { None };
+        if parked.as_mut().is_some_and(|c| !matches!(c.try_wait(), Ok(None))) { parked = None; }
+        let mut child = match parked { Some(child) => child, None => command.spawn().map_err(|e| e.to_string())? };
+        if let Some(request) = selection_request {
+            use std::io::Write;
+            let send = |child: &mut Child| -> std::io::Result<()> {
+                #[cfg(target_os = "windows")]
+                crate::media_windows::allow_selector_foreground(child.id());
+                let mut input = child.stdin.take().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "选区进程不可用"))?;
+                input.write_all(request.as_bytes())
+            };
+            if send(&mut child).is_err() {
+                let _ = child.kill(); let _ = child.wait();
+                child = command.spawn().map_err(|e| e.to_string())?;
+                if let Err(error) = send(&mut child) { let _ = child.kill(); let _ = child.wait(); return Err(error.to_string()); }
+            }
+        }
         let stdout = collect_child_output(child.stdout.take().unwrap());
         let stderr = collect_child_output(child.stderr.take().unwrap());
         #[cfg(target_os = "windows")]
@@ -783,29 +857,36 @@ pub async fn capture_screen(
     let guard = CaptureGuard(app.clone());
     tauri::async_runtime::spawn_blocking(move || {
         let _guard=guard;
-        let restore_studio=main_thread(&app,|app|Ok(app.get_webview_window("studio").is_some_and(|w|w.is_visible().unwrap_or(false)))).unwrap_or(false);
+        let mut restore_studio=false;
         let result=(|| {
-            if !main_thread(&app, |_| Ok(capture_permissions() || request_capture_permission()))? {
+            if !capture_permissions() && !main_thread(&app, |_| Ok(request_capture_permission()))? {
                 return Err("请在系统设置 → 隐私与安全性 → 屏幕录制中允许 PasteNext，必要时重新启动客户端后再试".into());
             }
             let dir=media_dir(&app);std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
             let path=dir.join(format!("{}.{}",new_id(),if video {if cfg!(target_os="windows"){"mp4"}else{"mov"}} else {"png"}));
-            main_thread(&app,|app|{crate::hide_panel_for_paste(&app)?;for name in ["studio","settings"]{if let Some(w)=app.get_webview_window(name){let _=w.hide();}}Ok(())})?;
-            std::thread::sleep(Duration::from_millis(140));
+            let (restore, visible)=main_thread(&app,|app|{
+                let restore=app.get_webview_window("studio").is_some_and(|w|w.is_visible().unwrap_or(false));
+                let mut visible=app.get_webview_window("panel").is_some_and(|w|w.is_visible().unwrap_or(false));
+                crate::hide_panel_for_paste(&app)?;
+                for name in ["studio","settings"] { if let Some(w)=app.get_webview_window(name) { if w.is_visible().unwrap_or(false) { visible=true;w.hide().map_err(|e|e.to_string())?; } } }
+                #[cfg(target_os="windows")]
+                if visible && crate::media_windows::flush_capture_windows() { visible=false; }
+                Ok((restore,visible))
+            })?;
+            restore_studio=restore;
+            if visible { std::thread::sleep(Duration::from_millis(32)); }
             let _=app.emit("capture-state",true);
             let mut chosen_options=options.clone();
             let selection:Option<NativeSelection>;
             #[cfg(any(target_os="macos",target_os="windows"))]
             {
                 selection=if !video || cfg!(target_os="windows") {
-                    let helper=app.path().resource_dir().map_err(|e|e.to_string())?.join(if cfg!(target_os="windows"){"capture_selector.exe"}else{"capture_selector"});
-                    if !helper.is_file(){return Err("原生截图选区工具不可用，请重新安装客户端".into());}
+                    if !["region","window","screen"].contains(&options.mode.as_str()) { return Err("截图方式无效".into()); }
                     let locale=app.state::<Db>().get_setting("locale").unwrap_or_else(||"zh-CN".into());
-                    let mut command=Command::new(helper);command.args(["--mode",&options.mode,"--locale",&locale,"--video",if video{"1"}else{"0"}]);
-                    #[cfg(all(target_os="windows",debug_assertions))]
-                    command.arg("--trace");
+                    let command=selector_command(&app)?;
+                    let request=format!("{}\t{}\t{}\n",options.mode,if locale=="en" {"en"} else {"zh-CN"},if video {1} else {0});
                     app.state::<CaptureState>().selecting.store(true,Ordering::SeqCst);
-                    let output=run_capture_child(&app,command);
+                    let output=run_capture_child(&app,command,Some(&request));
                     app.state::<CaptureState>().selecting.store(false,Ordering::SeqCst);
                     let Some(output)=output? else{return Ok(None)};
                     if app.state::<CaptureState>().cancelled.load(Ordering::SeqCst){return Ok(None);}
@@ -825,7 +906,7 @@ pub async fn capture_screen(
             let resources=app.path().resource_dir().map_err(|e|e.to_string())?;
             let command=capture_command(&path,&chosen_options,video,preferences(&app).sound,selection.as_ref(),&resources)?;
             app.state::<CaptureState>().started_at.store(now(),Ordering::SeqCst);
-            let Some(output)=run_capture_child(&app,command)? else{return Ok(None)};
+            let Some(output)=run_capture_child(&app,command,None)? else{return Ok(None)};
             if app.state::<CaptureState>().cancelled.load(Ordering::SeqCst){let _=std::fs::remove_file(&path);return Ok(None);}
             if !path.exists(){
                 if !output.status.success()&&!output.stderr.is_empty(){return Err(format!("截图或录屏未完成：{}",String::from_utf8_lossy(&output.stderr).trim()));}
@@ -1119,6 +1200,23 @@ pub fn open_screen_permission_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn migrates_windows_defaults_once_and_preserves_custom_bindings() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        db.set_setting("capture_hotkey", "CmdOrCtrl+Shift+A");
+        db.set_setting("record_hotkey", "Control+Shift+R");
+        db.set_setting("scroll_hotkey", "Ctrl+Alt+L");
+        migrate_capture_defaults(&db, true);
+        assert_eq!(db.get_setting("capture_hotkey").as_deref(), Some("Ctrl+Alt+A"));
+        assert_eq!(db.get_setting("record_hotkey").as_deref(), Some("Ctrl+Alt+R"));
+        assert_eq!(db.get_setting("scroll_hotkey").as_deref(), Some("Ctrl+Alt+L"));
+        db.set_setting("capture_hotkey", "Ctrl+Shift+A");
+        migrate_capture_defaults(&db, true);
+        assert_eq!(db.get_setting("capture_hotkey").as_deref(), Some("Ctrl+Shift+A"));
+        assert_eq!(migrated_capture_hotkey("scroll", "CmdOrCtrl+Shift+G", true), "Ctrl+Alt+G");
+        assert_eq!(migrated_capture_hotkey("capture", "CmdOrCtrl+Shift+A", false), "CmdOrCtrl+Shift+A");
+        assert_eq!(migrated_capture_hotkey("capture", "Control+Shift+A", false), "CmdOrCtrl+Shift+A");
+    }
     #[test]
     fn validates_native_selection_coordinates_and_window_identity() {
         let mut selected:NativeSelection=serde_json::from_value(serde_json::json!({"mode":"region","display":2,"rect":{"x":-1440,"y":-900,"width":500,"height":300}})).unwrap();
