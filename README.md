@@ -10,7 +10,7 @@
 
 集成截图、标注、OCR、长图拼接、贴图、录屏与局域网扫码传图，macOS 与 Windows 均有原生捕获入口。截图时直接用浮动栏或 **1 / 2 / 3** 切换区域、窗口、全屏，选区外暗化 60%。
 
-默认快捷键按平台适配：macOS **⌘⇧A / R / G**，Windows **Ctrl+Shift+A / R / G**，分别对应截图、录屏启停与长截图。其他自定义组合保留。
+开发版默认快捷键：macOS **⌘⇧A / R / G**，Windows **Ctrl+Alt+A / R / G**，分别对应截图、录屏启停与长截图；Windows 剪贴板面板仍为 **Ctrl+Alt+V**。升级时自动迁移旧截图默认组合，其他自定义组合保留。已发布的 v1.0.27 仍使用 Windows Ctrl+Shift 默认组合。
 
 Windows 构建前运行 `python scripts/setup-windows-media.py` 准备固定版本的本地媒体引擎；安装版与便携版都会包含运行文件。详见 [平台对齐说明](docs/screenshot/platform-parity.md)。新功能包含在 [v1.0.27](https://github.com/neekin/pastenext/releases/tag/v1.0.27) 及之后的正式版中。
 

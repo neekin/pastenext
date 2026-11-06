@@ -10,7 +10,7 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 Screenshots, annotations, OCR, long-image stitching, pinned images, recording and local phone transfers now have native capture entry points on macOS and Windows. Switch region, window and display modes directly in the capture toolbar or with **1 / 2 / 3**, with a 60% outside dim mask.
 
-Defaults use **Command+Shift+A / R / G** on macOS and **Ctrl+Shift+A / R / G** on Windows for capture, recording start/stop and long screenshots. Unrelated custom shortcuts are preserved.
+Development builds use **Command+Shift+A / R / G** on macOS and **Ctrl+Alt+A / R / G** on Windows for capture, recording start/stop and long screenshots. The Windows panel remains **Ctrl+Alt+V**. Old capture defaults migrate once; unrelated custom shortcuts are preserved. Published v1.0.27 still uses the previous Windows Ctrl+Shift defaults.
 
 Before building on Windows, run `python scripts/setup-windows-media.py` to prepare the pinned local media runtime. Both installed and portable packages include it. See [platform parity](docs/screenshot/platform-parity.md). Capture features are included in [v1.0.27](https://github.com/neekin/pastenext/releases/tag/v1.0.27) and later stable releases.
 

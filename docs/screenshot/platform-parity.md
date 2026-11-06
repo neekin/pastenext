@@ -3,9 +3,18 @@
 Current work: original native macOS and Windows selectors; shared editor, library,
 OCR entry points, image exports, pinning, long-image stitching and LAN transfers.
 
-- Defaults: `CmdOrCtrl+Shift+A`, `CmdOrCtrl+Shift+R`, `CmdOrCtrl+Shift+G`.
-  This resolves to Command on macOS and Control on Windows. Known temporary
-  development defaults migrate; unrelated user shortcuts remain unchanged.
+- Development defaults: Command+Shift+A / R / G on macOS; Ctrl+Alt+A / R / G on
+  Windows, alongside Ctrl+Alt+V for the clipboard panel. Existing capture defaults
+  migrate once. Custom bindings and later choices of the old combinations persist.
+  Published v1.0.27 still uses the previous Windows Ctrl+Shift defaults.
+- Selection startup: prelaunch one idle native helper, initialize UI libraries,
+  and send a fresh request over its stdin pipe when capture begins. Screen content
+  is read only after that request. Closed/crashed workers fall back to a new helper;
+  the next idle helper is prepared after completion or cancellation.
+- The unconditional 140 ms startup sleep is removed. Visible Windows UI uses a
+  compositor flush before capture; macOS waits 32 ms only when hiding visible UI.
+  Region/display modes skip window enumeration until window selection is requested.
+  Idle mouse movement no longer redraws the entire overlay.
 - Selection: outside shade 60%, resize / move, floating region / window / display
   toolbar, 1/2/3 and Space/Tab switching, Enter to confirm, Esc/right-click cancel.
   Selection mode is persisted without opening the studio.
