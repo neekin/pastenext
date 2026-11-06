@@ -215,5 +215,144 @@
         "sha256": null
       }
     ]
+  },
+  "capture-startup-optimization": {
+    "date": "2026-11-06",
+    "implementationCommit": "f9133336baa4957c617023785648158b9d539dd1",
+    "defaultShortcuts": {
+      "Windows": "Ctrl+Alt+A / R / G; panel Ctrl+Alt+V",
+      "macOS": "Command+Shift+A / R / G"
+    },
+    "migration": "Known previous capture defaults migrate once; custom bindings and later explicit choices are preserved",
+    "macOS": {
+      "baseline": {
+        "firstDrawMs": [
+          806.57,
+          287.8,
+          183.17
+        ],
+        "medianMs": 287.8,
+        "warm": false
+      },
+      "optimized": {
+        "firstDrawMs": [
+          50.7,
+          46.75,
+          49.74
+        ],
+        "medianMs": 49.74,
+        "warm": true
+      },
+      "measurement": "Native helper process launch to first draw vs idle prewarmed helper request to first draw; 3 samples each; helper probes cancel without saving",
+      "idleHelperDoesNotActivate": true,
+      "activeOverlayKeyboardFocusVerified": true,
+      "rustTestsPassed": 28,
+      "installedPreview": "~/Applications/PasteNext Preview.app",
+      "profile": "release (optimized)"
+    },
+    "Windows": {
+      "clientReport": {
+        "stage": "complete",
+        "selectionReadyMs": 138.5315,
+        "shortcuts": {
+          "capture": "Ctrl+Alt+A",
+          "record": "Ctrl+Alt+R",
+          "scroll": "Ctrl+Alt+G"
+        },
+        "nativeScreenshot": {
+          "id": "8e86d278544fdb26a2a3997354e5a4eb",
+          "kind": "image",
+          "name": "截图",
+          "width": 180,
+          "height": 120,
+          "createdAt": 1793965794392,
+          "clipId": 1
+        },
+        "selectionReadySamplesMs": [
+          138.5315,
+          149.1295,
+          165.3418
+        ],
+        "startupComparison": {
+          "baselineVersion": "1.0.27",
+          "baselineMedianMs": 269.6343,
+          "optimizedMedianMs": 149.1295
+        },
+        "recording": {
+          "saved": true,
+          "extension": ".mp4"
+        },
+        "videoPlayback": {
+          "ready": 4,
+          "width": 1024,
+          "height": 768
+        },
+        "ocr": {
+          "available": true,
+          "recognizedTestText": true
+        },
+        "download": true,
+        "upload": true,
+        "revoked": true,
+        "bundle": "io.pastenext.preview",
+        "ok": true
+      },
+      "measurement": "Real OS shortcut to visible, focused, painted native selection window; timed inside one input process, excluding PowerShell startup; three samples each; released v1.0.27 vs debug Preview with the same optimized native C++ helper",
+      "rustTestsPassed": 30,
+      "nativeClientRun": "https://github.com/neekin/pastenext/actions/runs/42212412142",
+      "secondClientReport": {
+        "stage": "complete",
+        "selectionReadyMs": 122.5228,
+        "shortcuts": {
+          "capture": "Ctrl+Alt+A",
+          "record": "Ctrl+Alt+R",
+          "scroll": "Ctrl+Alt+G"
+        },
+        "nativeScreenshot": {
+          "id": "ffbd1f2d48c1d9e00c7bb43546f8a595",
+          "kind": "image",
+          "name": "截图",
+          "width": 180,
+          "height": 120,
+          "createdAt": 1793966680833,
+          "clipId": 1
+        },
+        "selectionReadySamplesMs": [
+          122.5228,
+          132.4976,
+          130.4117
+        ],
+        "startupComparison": {
+          "baselineVersion": "1.0.27",
+          "baselineMedianMs": 291.0468,
+          "optimizedMedianMs": 130.4117
+        },
+        "recording": {
+          "saved": true,
+          "extension": ".mp4"
+        },
+        "videoPlayback": {
+          "ready": 4,
+          "width": 1024,
+          "height": 768
+        },
+        "ocr": {
+          "available": true,
+          "recognizedTestText": true
+        },
+        "download": true,
+        "upload": true,
+        "revoked": true,
+        "bundle": "io.pastenext.preview",
+        "ok": true
+      },
+      "optimizedPreviewBuildRun": "https://github.com/neekin/pastenext/actions/runs/42214286712",
+      "optimizedPreviewBuildSucceeded": true,
+      "deliveryProfile": "release (optimized); test inspector removed; isolated io.pastenext.preview identifier",
+      "installerSHA256": "19b78d60e738431d59512fbaf620ec3410d349334f3fdea4ab4e83794f4ccf84"
+    },
+    "fixedWait": "Unconditional 140 ms removed; compositor flush on Windows, 32 ms only when hiding visible macOS UI",
+    "delivery": "Preview builds; published v1.0.27 remains unchanged",
+    "cleanup": "Approximately 8.7 GiB of obsolete outputs and completed compiler intermediates removed; one current macOS Preview and one optimized Windows Preview installer retained"
   }
 }
