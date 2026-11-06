@@ -84,13 +84,15 @@ Content fingerprints: SHA-256 over text content, decoded RGBA pixels for images,
 
 ## CI builds for Windows / macOS
 
-Pushing to `main` or tagging `v*` triggers GitHub Actions (`.github/workflows/build.yml`):
+Pushing a `v*` tag triggers GitHub Actions (`.github/workflows/build.yml`) to build these installers and publish a Release after all builds succeed. Manual workflow runs only build Artifacts.
 
 - macOS Apple Silicon (`aarch64-apple-darwin` .dmg)
 - macOS Intel (`x86_64-apple-darwin` .dmg)
 - Windows x64 (`x86_64-pc-windows-msvc` .msi / .exe)
 
 Download them from the Artifacts section of the corresponding run (PasteNext-macos-*/PasteNext-windows-*).
+
+Keep the package, Tauri and Cargo versions in sync and run `python3 scripts/check-release-version.py v1.0.27` before tagging. Release builds require the repository's `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`. macOS also requires encrypted `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` secrets to reuse the persistent identity. The workflow verifies signatures inside each DMG and publishes `SHA256SUMS`.
 
 ## Roadmap
 

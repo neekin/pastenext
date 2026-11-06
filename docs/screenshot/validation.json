@@ -156,5 +156,64 @@
       "stableDownloadVersion": "1.0.26",
       "mobileLayout390pxNoOverflow": true
     }
+  },
+  "release-v1.0.27": {
+    "url": "https://github.com/neekin/pastenext/releases/tag/v1.0.27",
+    "publishedAt": "2026-11-06T00:06:44Z",
+    "sourceCommit": "c2663545f9050c795ac4ec9bf2765e107fb5a6a3",
+    "actionsRun": "https://github.com/neekin/pastenext/actions/runs/42133354735",
+    "allPlatformBuildsAndReleaseSucceeded": true,
+    "profiles": "release (optimized), production license secrets required",
+    "macOS": {
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "certificateSHA1": "8354B309E96DCC10F7AA8E956120F4FBA4988DEF",
+      "embeddedAppVersion": "1.0.27",
+      "embeddedBundleIdentifier": "io.pastenext.app",
+      "bothDmgEmbeddedSignaturesVerified": true,
+      "persistentSigningSmokeRun": "https://github.com/neekin/pastenext/actions/runs/42133112504"
+    },
+    "Windows": {
+      "installedClientSmokeRun": "https://github.com/neekin/pastenext/actions/runs/42133103623",
+      "portableRuntimeSelectorAndLicenseNoticesVerified": true
+    },
+    "publicDownloadChecksumsVerified": [
+      "PasteNext-macOS-arm64.dmg",
+      "PasteNext-Windows-x64-portable.zip"
+    ],
+    "assets": [
+      {
+        "name": "PasteNext-macOS-arm64.dmg",
+        "bytes": 4022813,
+        "sha256": "196e4c36f30346f970e373232ab30ab156fc38297140db3a2b0c3d405cff5380"
+      },
+      {
+        "name": "PasteNext-macOS-intel.dmg",
+        "bytes": 4342226,
+        "sha256": "bf0dbe1146921c80d9d6cbfc915adea26555ba2614a9f87f62fdf53f966b9cb7"
+      },
+      {
+        "name": "PasteNext-Windows-x64-portable.zip",
+        "bytes": 60462932,
+        "sha256": "ec0aadea471566291de40ea5e66cb3513fd616b9c02a5d9d7b58ee7d6aee0cc6"
+      },
+      {
+        "name": "PasteNext-Windows-x64-setup.exe",
+        "bytes": 44249952,
+        "sha256": "5cf8172331a05636831d99233743bf32b5a818265457d56dbdcd6357ce8f7be5"
+      },
+      {
+        "name": "PasteNext-Windows-x64.msi",
+        "bytes": 58961920,
+        "sha256": "5cfee293987bc29a6faf5a2973f7c623ce9e71272f1937ec42ecaafb4be07b3e"
+      },
+      {
+        "name": "SHA256SUMS",
+        "bytes": 475,
+        "sha256": null
+      }
+    ]
   }
 }

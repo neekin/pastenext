@@ -90,13 +90,15 @@ src-tauri/src/
 
 ## CI 构建 Windows / macOS 安装包
 
-推送到 `main` 或打 `v*` tag 后,GitHub Actions(见 `.github/workflows/build.yml`)会构建:
+推送 `v*` 标签后，GitHub Actions（见 `.github/workflows/build.yml`）会构建以下安装包，并在全部成功后发布 GitHub Release。手动运行工作流仅构建 Artifacts。
 
 - macOS Apple Silicon(`aarch64-apple-darwin` .dmg)
 - macOS Intel(`x86_64-apple-darwin` .dmg)
 - Windows x64(`x86_64-pc-windows-msvc` .msi / .exe)
 
 在 Actions 页面对应 run 的 Artifacts 里下载(PasteNext-macos-*/PasteNext-windows-*)。
+
+发布前同步更新 `package.json`、Tauri 配置、Cargo 包与锁文件版本，并运行 `python3 scripts/check-release-version.py v1.0.27`。正式构建使用仓库的 `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`；macOS 另需 `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` 加密 Secrets，以复用固定签名。发布流程会校验 DMG 内的签名并提供 `SHA256SUMS`。
 
 ## Roadmap
 

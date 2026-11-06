@@ -41,7 +41,10 @@ A separate Preview identifier and executable name keep test installations from
 replacing the stable application or using its data directory. The downloadable
 Preview installer is rebuilt without the test-only WebView debugging port.
 
-Website: existing GitHub Pages Actions deploys `site/` from main. New features are
-marked development preview because the stable download buttons still point to
-v1.0.26, which does not include the new capture studio. Native builds and media
-tests now pass on both macOS and Windows.
+Release: GitHub Actions builds macOS Apple Silicon / Intel and Windows x64
+installers from version tags. macOS packages reuse the existing fixed certificate;
+both DMGs are mounted and their embedded app signatures verified before upload.
+The release contains Windows EXE, MSI and portable ZIP packages plus `SHA256SUMS`.
+
+Website: existing GitHub Pages Actions deploys `site/` from main. Capture features
+are included in v1.0.27 and later stable downloads on macOS and Windows.
