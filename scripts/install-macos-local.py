@@ -32,6 +32,20 @@ def stop():
     raise RuntimeError("客户端未退出，安装已停止。")
 
 
+def start():
+    # LaunchServices can briefly retain a process that ps already reports exited.
+    for attempt in range(10):
+        result = subprocess.run(["open", "-n", str(DEST)], capture_output=True, text=True)
+        if result.returncode == 0:
+            break
+        if "-600" not in result.stderr or attempt == 9:
+            raise RuntimeError(f"macOS 未能启动客户端：{result.stderr.strip()}")
+        time.sleep(.25)
+    time.sleep(2)
+    if not running_pids():
+        raise RuntimeError("新客户端启动失败。")
+
+
 def install(source):
     if sys.platform != "darwin":
         raise RuntimeError("This installer requires macOS.")
@@ -52,17 +66,14 @@ def install(source):
             DEST.rename(backup)
         try:
             staging.rename(DEST)
-            subprocess.run(["open", str(DEST)], check=True)
-            time.sleep(2)
-            if not running_pids():
-                raise RuntimeError("新客户端启动失败。")
+            start()
         except Exception:
             stop()
             if DEST.exists():
                 DEST.rename(staging)
             if backup.exists():
                 backup.rename(DEST)
-                subprocess.run(["open", str(DEST)], check=False)
+                start()
             raise
         installed = True
     finally:
