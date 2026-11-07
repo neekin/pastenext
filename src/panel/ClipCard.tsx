@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
 import DOMPurify from "dompurify";
 import { api, getAppIconCached } from "../api";
-import { pins, supportsPins } from "../pins/api";
+import { pins } from "../pins/api";
 import ClipImage from "./ClipImage";
 import { useI18n, type I18nKey } from "../i18n";
 import type { Board, Clip } from "../types";
@@ -73,10 +73,13 @@ interface Props {
 export default memo(function ClipCard({ clip, selected, pasting, focusSelection, queueIndex, boards, onClick, onDoubleClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pinning, setPinning] = useState(false);
+  const [noteSending, setNoteSending] = useState(false);
+  const [noteNotice, setNoteNotice] = useState("");
   const [pinError, setPinError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const { t } = useI18n();
+  useEffect(() => { if (!noteNotice) return; const timer = setTimeout(() => setNoteNotice(""), 2600); return () => clearTimeout(timer); }, [noteNotice]);
   const rel = useMemo(() => relTime(clip.createdAt, t), [clip.createdAt, t]);
   const theme = KIND_THEME[clip.kind] ?? KIND_THEME.text;
   const sizeText = useMemo(() => sizeLabel(clip, t), [clip, t]);
@@ -291,9 +294,20 @@ export default memo(function ClipCard({ clip, selected, pasting, focusSelection,
         {t("pins.failed")}: {pinError}
         <button className="ml-1 underline" onClick={() => setPinError("")}>{t("pins.close")}</button>
       </div>}
+      {noteNotice && <div role="status" className="absolute inset-x-1 bottom-8 z-30 p-2 rounded-lg bg-amber-50 text-amber-900 text-xs" onClick={e => { e.stopPropagation(); setNoteNotice(""); }}>{noteNotice}</div>}
       {/* 悬停操作 */}
       <div className="absolute bottom-9 right-2 flex gap-1">
-        {supportsPins && clip.kind === "image" && clip.imagePath && !clip.sensitive && (
+        {!clip.sensitive && (clip.kind === "text" || clip.kind === "rich_text") && clip.text?.trim() && <button
+          disabled={noteSending} aria-label={t("notes.send")} title={t("notes.send")}
+          className="px-1.5 h-6 rounded-md bg-white/90 dark:bg-neutral-700/90 shadow text-[11px] hover:bg-amber-200 dark:hover:bg-amber-800 disabled:opacity-50"
+          onMouseDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation(); setNoteSending(true); setPinError("");
+            void api.clipToNote(clip.id).then(provider => setNoteNotice(t(provider === "system-paste" ? "notes.paste" : provider === "builtin-fallback" ? "notes.fallback" : "notes.opened")))
+              .catch(error => setPinError(String(error))).finally(() => setNoteSending(false));
+          }}>{t("notes.send")}</button>}
+
+        {clip.kind === "image" && clip.imagePath && !clip.sensitive && (
           <button disabled={pinning} aria-label={t("pins.create")} title={t("pins.create")}
             className="px-1.5 h-6 rounded-md bg-white/90 dark:bg-neutral-700/90 shadow text-[11px] hover:bg-indigo-500 hover:text-white disabled:opacity-50"
             onKeyDown={(e) => e.stopPropagation()}

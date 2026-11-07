@@ -27,6 +27,12 @@ export function renderAnnotatedImage(image: HTMLImageElement, marks: NumberMark[
   if (!ctx) throw new Error("Image canvas is unavailable");
   ctx.drawImage(image, 0, 0);
   marks.forEach((mark, index) => {
+    paintNumberMark(ctx, mark, index);
+  });
+  return canvas.toDataURL("image/png");
+}
+
+export function paintNumberMark(ctx: CanvasRenderingContext2D, mark: NumberMark, index: number) {
     ctx.beginPath();
     ctx.arc(mark.x, mark.y, mark.radius, 0, Math.PI * 2);
     ctx.fillStyle = "#ef4444";
@@ -39,6 +45,4 @@ export function renderAnnotatedImage(image: HTMLImageElement, marks: NumberMark[
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(String(index + 1), mark.x, mark.y + mark.radius * 0.06);
-  });
-  return canvas.toDataURL("image/png");
 }

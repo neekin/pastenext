@@ -1,3 +1,4 @@
+import { paintNumberMark } from "../pins/annotations.ts";
 export type Tool =
   | "crop"
   | "rectangle"
@@ -29,6 +30,7 @@ export interface Mark {
   width: number;
   points?: Point[];
   text?: string;
+  pinRadius?: number;
 }
 export function rectBetween(a: Point, b: Point): Rect {
   return {
@@ -167,6 +169,8 @@ export function paint(
       .forEach((line, i) =>
         ctx.fillText(line, a.x, a.y + i * Math.max(22, w * 7)),
       );
+  } else if (tool === "number" && mark.pinRadius !== undefined) {
+    paintNumberMark(ctx, { x: a.x, y: a.y, radius: mark.pinRadius }, Number(mark.text || "1") - 1);
   } else if (tool === "number") {
     const radius = Math.max(14, w * 4);
     ctx.beginPath();

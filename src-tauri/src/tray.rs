@@ -113,6 +113,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
                 let action = event.id().as_ref().trim_start_matches("pins_");
                 if let Err(e) = crate::pins::all(app, action) { eprintln!("[pins] {e}"); }
             }
+            "notes_restore" | "notes_hide" => { let _ = crate::notes::all(app,event.id().as_ref()=="notes_hide"); },
             "quit" => app.exit(0),
             _ => {}
         })

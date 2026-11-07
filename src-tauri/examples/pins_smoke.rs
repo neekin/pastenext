@@ -3,23 +3,11 @@
 //! cargo run --manifest-path src-tauri/Cargo.toml --example pins_smoke --features tauri/custom-protocol
 //! Optional PIN_SMOKE_IMAGE supplies a PNG. No clipboard monitor, hotkeys or user DB are used.
 #![allow(dead_code)]
-#[path = "../src/i18n.rs"]
-mod i18n;
+include!("../src/lib.rs");
 #[path = "../src/tray/menu.rs"]
 mod tray_layout;
-#[path = "../src/db.rs"]
-mod db;
-#[path = "../src/model.rs"]
-mod model;
-#[path = "../src/pins.rs"]
-mod pins;
-#[path = "../src/util.rs"]
-mod util;
-use std::{
-    sync::{mpsc, Mutex},
-    time::Duration,
-};
-use tauri::{Manager, WebviewWindow};
+use std::{sync::mpsc, time::Duration};
+use tauri::WebviewWindow;
 
 struct Reports(Mutex<mpsc::Sender<serde_json::Value>>);
 struct Output(std::path::PathBuf);
@@ -31,10 +19,6 @@ fn smoke_report(app: tauri::AppHandle, report: serde_json::Value) {
         .unwrap()
         .send(report)
         .unwrap();
-}
-#[tauri::command]
-fn get_settings() -> std::collections::HashMap<String, String> {
-    [("locale".into(), "zh-CN".into())].into_iter().collect()
 }
 // Capture the UI's flattened PNG without modifying the user's system clipboard.
 #[tauri::command(rename = "pin_copy")]
@@ -128,12 +112,12 @@ fn probe(
 ) -> Result<serde_json::Value, String> {
     win.eval(format!(r#"(async () => {{ try {{
         const waitFor = async (f) => {{ for(let i=0;i<200;i++){{ if(f()) return; await new Promise(r=>setTimeout(r,20)); }} throw Error('UI state timed out'); }};
-        {script} }} catch(e) {{ await window.__TAURI_INTERNALS__.invoke('smoke_report', {{report:{{error:String(e)}}}}); }} }})()"#)).map_err(|e| e.to_string())?;
+        {script} }} catch(e) {{ await window.__TAURI_INTERNALS__.invoke('smoke_report', {{report:{{error:String(e),url:location.href,text:document.body.innerText.slice(0,1200),editor:document.querySelector('.capture-editor')?.dataset.assetId,canvas:document.querySelector('canvas')?.width,stage:window.__smokeStage,expected:window.__smokeExpected,pinImages:document.querySelectorAll('.pin-markers text').length}}}}); }} }})()"#)).map_err(|e| e.to_string())?;
     let value = reports
         .recv_timeout(Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
-    if let Some(e) = value.get("error") {
-        return Err(e.to_string());
+    if value.get("error").is_some() {
+        return Err(value.to_string());
     }
     Ok(value)
 }
@@ -200,6 +184,176 @@ fn ui_state(
         ),
     )
 }
+fn verify_notes(app:&tauri::AppHandle,panel:&WebviewWindow,receiver:&mpsc::Receiver<serde_json::Value>,reopened:bool)->Result<(),String>{
+    if !reopened {assert_eq!(tauri::async_runtime::block_on(notes::clip_to_note(app.clone(),panel.clone(),3))?,"builtin");}
+    let note=app.get_webview_window("note-1").ok_or("Note window missing")?;
+    wait_visible(&note);
+    if !reopened {
+        probe(&note,receiver,r#"
+            await waitFor(()=>document.querySelector('textarea')?.value==='便签测试\nHello 📝');
+            const field=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'更新的便签\nSaved after typing');field.dispatchEvent(new Event('input',{bubbles:true}));
+            await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{noteEdited:true}});
+        "#)?;
+        for _ in 0..100 {if app.state::<notes::Notes>().list()?[0].text=="更新的便签\nSaved after typing"{break;}std::thread::sleep(Duration::from_millis(20));}
+        assert_eq!(app.state::<notes::Notes>().list()?[0].text,"更新的便签\nSaved after typing");
+    } else {
+        probe(&note,receiver,r#"
+            await waitFor(()=>document.querySelector('textarea')?.value==='更新的便签\nSaved after typing');
+            await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{noteRestored:true}});
+        "#)?;
+        note.close().map_err(|e|e.to_string())?;
+        for _ in 0..100 {if !note.is_visible().unwrap_or(false){break;}std::thread::sleep(Duration::from_millis(10));}
+        assert!(app.state::<notes::Notes>().list()?[0].hidden);
+    }
+    Ok(())
+}
+fn verify_opacity(app:&tauri::AppHandle,win:&WebviewWindow,receiver:&mpsc::Receiver<serde_json::Value>)->Result<(),String>{
+    menu_action(app,win,"opacity")?;
+    let popup=app.get_webview_window(&format!("opacity-{}",win.label())).ok_or("No opacity popover")?;
+    probe(&popup,receiver,r#"
+        await waitFor(()=>document.querySelector('input[type=range]'));
+        const slider=document.querySelector('input[type=range]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(slider,'34');slider.dispatchEvent(new Event('input',{bubbles:true}));
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{slider:true}});
+    "#)?;
+    for _ in 0..100 {if (pins::list_pins(app.clone()).iter().find(|p|p.label==win.label()).unwrap().opacity-0.34).abs()<0.001{break;}std::thread::sleep(Duration::from_millis(20));}
+    assert!((pins::list_pins(app.clone()).iter().find(|p|p.label==win.label()).unwrap().opacity-0.34).abs()<0.001);
+    probe(&popup,receiver,r#"
+        const field=document.querySelector('input[type=number]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'67');field.dispatchEvent(new Event('input',{bubbles:true}));
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{numeric:true}});
+    "#)?;
+    for _ in 0..100 {if (pins::list_pins(app.clone()).iter().find(|p|p.label==win.label()).unwrap().opacity-0.67).abs()<0.001{break;}std::thread::sleep(Duration::from_millis(20));}
+    assert!((pins::list_pins(app.clone()).iter().find(|p|p.label==win.label()).unwrap().opacity-0.67).abs()<0.001);
+    popup.hide().map_err(|e|e.to_string())?;
+    Ok(())
+}
+
+fn verify_corner_resize(win: &WebviewWindow, receiver: &mpsc::Receiver<serde_json::Value>) -> Result<(),String> {
+    probe(win,receiver,r#"
+        const corner=document.querySelector('.pin-resize-handle');
+        if (!corner) throw Error('No corner resize handle');
+        const resize = async (factor) => {
+            const w=innerWidth,h=innerHeight;
+            corner.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,buttons:1,pointerId:7,screenX:400,screenY:300}));
+            corner.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,cancelable:true,buttons:1,pointerId:7,screenX:400+w*(factor-1),screenY:300+h*(factor-1)}));
+            await waitFor(()=>factor>1 ? innerWidth>w : innerWidth<w);
+            corner.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7,button:0,buttons:0}));
+            if(Math.abs(innerWidth/innerHeight-640/360)>.025) throw Error('Resize changed the image aspect ratio');
+        };
+        await resize(1.5); await resize(.5);
+        const previous=innerWidth;
+        const surface=document.querySelector('.pin-window');
+        surface.dispatchEvent(new Event('gesturestart',{cancelable:true}));
+        const gesture=new Event('gesturechange',{cancelable:true});Object.defineProperty(gesture,'scale',{value:1.2});surface.dispatchEvent(gesture);
+        await waitFor(()=>innerWidth>previous);
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{cornerResize:true,pinch:true}});
+    "#)?;
+    Ok(())
+}
+
+fn verify_edit(app:&tauri::AppHandle,win:&WebviewWindow,receiver:&mpsc::Receiver<serde_json::Value>,root:&std::path::Path,cold:bool)->Result<(),String>{
+    let studio=app.get_webview_window("studio").ok_or("No studio")?;
+    let mut url=win.url().map_err(|e|e.to_string())?;url.set_path("/studio.html");url.set_query(None);
+    if !cold {
+        studio.navigate(url.clone()).map_err(|e|e.to_string())?;
+        probe(&studio,receiver,r#"
+            await waitFor(()=>document.querySelector('.capture-app'));
+            await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{studioReady:true}});
+        "#)?;
+    }
+    let previous:std::collections::HashSet<_>=capture::media_list(app.clone()).into_iter().map(|a|a.id).collect();
+    menu_action(app,win,"edit")?;
+    let mut edited=None;
+    for _ in 0..200 {
+        edited=capture::media_list(app.clone()).into_iter().find(|a|!previous.contains(&a.id));
+        if edited.is_some() && studio.is_visible().unwrap_or(false){break;}
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let edited=edited.ok_or("Pin edit did not create a studio image")?;
+    assert_eq!((edited.width,edited.height),(640,360),"Edit opens the full-resolution image");
+    if cold {studio.navigate(url).map_err(|e|e.to_string())?;}
+    let report=probe(&studio,receiver,&format!(r#"
+        window.__smokeStage='editor'; window.__smokeExpected={};
+        await waitFor(()=>document.querySelector('.capture-editor')?.dataset.assetId === window.__smokeExpected && document.querySelector('canvas')?.width===640);
+        const canvas=document.querySelector('canvas');
+        window.__smokeStage='undo enabled'; await waitFor(()=>!document.querySelector('button[title^="撤销"]').disabled);
+        const original=canvas.toDataURL();
+        document.querySelector('button[title^="撤销"]').click();
+        window.__smokeStage='canvas changed'; await waitFor(()=>canvas.toDataURL()!==original);
+        document.querySelector('button[title^="重做"]').click();
+        window.__smokeStage='redo matches'; await waitFor(()=>canvas.toDataURL()===original);
+        document.querySelector('button[aria-label="序号"]').click();
+        window.__smokeStage='number tool selected'; await waitFor(()=>document.querySelector('button[aria-label="序号"]').getAttribute('aria-pressed')==='true');
+        const bounds=canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new PointerEvent('pointerdown',{{bubbles:true,button:0,clientX:bounds.left+bounds.width*.8,clientY:bounds.top+bounds.height*.5}}));
+        window.__smokeStage='canvas changed'; await waitFor(()=>canvas.toDataURL()!==original);
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{{report:{{studioEdit:true,width:canvas.width,height:canvas.height,cold:{cold}}}}});
+    "#,serde_json::to_string(&edited.id).unwrap()))?;
+    assert_eq!(report["studioEdit"],true);
+    assert!(!win.is_visible().unwrap(),"Source pin is hidden during editing");
+    let old_image=serde_json::to_value(pins::pin_content(app.clone(),win.clone())?).unwrap()["image"].clone();
+    if cold {
+        probe(&studio,receiver,r#"
+            [...document.querySelectorAll('button')].find(b=>b.textContent==='取消编辑').click();
+            await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{cancelled:true}});
+        "#)?;
+    } else {
+        probe(&studio,receiver,r#"
+            [...document.querySelectorAll('button')].find(b=>b.textContent==='使用图片').click();
+            await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{applied:true}});
+        "#)?;
+    }
+    wait_visible(win);
+    let current=serde_json::to_value(pins::pin_content(app.clone(),win.clone())?).unwrap();
+    if cold {assert_eq!(current["image"],old_image,"Cancel preserves the original image");}
+    else {assert_ne!(current["image"],old_image,"Using the edited image replaces the same pin");assert_eq!(current["info"]["marks"],serde_json::json!([]),"Studio annotations are already rendered into the replacement bitmap");}
+    assert_eq!(capture::media_list(app.clone()).len(), previous.len() + if cold { 1 } else { 2 }, "Only the selected pin should react to its edit menu; applying adds one rendered image");
+    assert!(pins::edit::take_pin_edit(app.clone(),studio.clone())?.is_none(),"Requests are consumed only once");
+    if cold {assert_eq!(pins::list_pins(app.clone()).into_iter().find(|p|p.label==win.label()).unwrap().marks.len(),3,"Cancelling preserves the saved pin annotations");}
+    std::fs::write(root.join(if cold{"studio-cold.json"}else{"studio-warm.json"}),serde_json::to_vec_pretty(&report).unwrap()).map_err(|e|e.to_string())?;
+    studio.hide().map_err(|e|e.to_string())?;
+    Ok(())
+}
+
+fn pin_order(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+    tauri::async_runtime::block_on(pins::on_main(app.clone(), pins::layers::visible_order))
+}
+fn verify_layers(app: &tauri::AppHandle, root: &std::path::Path) -> Result<(), String> {
+    let order = pin_order(app)?;
+    assert_eq!(order.len(), 3, "Layering must consider all three visible pins");
+    let windows: Vec<_> = order.iter().map(|label| app.get_webview_window(label).unwrap()).collect();
+    let positions: Vec<_> = windows.iter().map(|w| w.outer_position().unwrap()).collect();
+    let move_to = |window: &WebviewWindow, position: tauri::PhysicalPosition<i32>| -> Result<(), String> {
+        window.set_position(position).map_err(|e| e.to_string())?;
+        for _ in 0..100 {
+            if window.outer_position().unwrap() == position { return Ok(()); }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Err("Layer test could not overlap the windows".into())
+    };
+    for window in &windows { move_to(window, positions[0])?; }
+    let order = pin_order(app)?;
+    let middle = app.get_webview_window(&order[1]).unwrap();
+    menu_action(app, &middle, "layer-up")?;
+    let mut above = order.clone(); above.swap(0, 1);
+    assert_eq!(pin_order(app)?, above, "Up moves exactly one adjacent pin");
+    menu_action(app, &middle, "layer-down")?;
+    assert_eq!(pin_order(app)?, order, "Down reverses the adjacent move");
+    menu_action(app, &app.get_webview_window(&order[0]).unwrap(), "layer-up")?;
+    assert_eq!(pin_order(app)?, order, "The top boundary is a no-op");
+    let bottom = app.get_webview_window(&order[2]).unwrap();
+    menu_action(app, &bottom, "layer-down")?;
+    assert_eq!(pin_order(app)?, order, "The bottom boundary is a no-op");
+    menu_action(app, &bottom, "layer-up")?;
+    let mut below = order.clone(); below.swap(1, 2);
+    assert_eq!(pin_order(app)?, below, "Moving the bottom pin up leaves the top pin in place");
+    for (window, position) in windows.iter().zip(positions) {
+        assert!(native_flags(app, window).1, "Layering preserves always-on-top");
+        move_to(window, position)?;
+    }
+    std::fs::write(root.join("layers.json"), serde_json::to_vec_pretty(&serde_json::json!({"before":order,"up":above,"bottomUp":below})).unwrap()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn write_phase(
     app: &tauri::AppHandle,
     panel: &WebviewWindow,
@@ -213,13 +367,15 @@ fn write_phase(
     wait_visible(&win);
     assert!(native_flags(app, &win).1);
     verify_tray_menu(app, root)?;
+    verify_notes(app,panel,receiver,false)?;
+    win.set_focus().map_err(|e|e.to_string())?;
     let initial = win.inner_size().unwrap();
     menu_action(app, &win, "zoom-50")?;
     assert!(win.inner_size().unwrap().height < initial.height);
     menu_action(app, &win, "opacity-50")?;
     let report = probe(&win,receiver,r#"
         await waitFor(() => document.querySelector('.pin-image-area img')?.style.opacity === '0.5');
-        if (document.querySelector('button,input,.pin-controls')) throw Error('Image has persistent controls');
+        if (document.querySelector('button:not(.pin-resize-handle),input,.pin-controls')) throw Error('Image has persistent controls');
         const image = document.querySelector('.pin-image-content').getBoundingClientRect();
         if (Math.abs(image.width-innerWidth)>1 || Math.abs(image.height-innerHeight)>1) throw Error('Window has a footer or gutter');
         document.querySelector('.pin-image-content').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:21,clientY:20,button:2}));
@@ -231,28 +387,15 @@ fn write_phase(
     let context:serde_json::Value=serde_json::from_slice(&std::fs::read(root.join("context-menu.json")).map_err(|e|e.to_string())?).unwrap();
     assert_eq!(context["dismissed"],true,"Real native popup opened and dismissed");
     assert!(win.is_visible().unwrap(),"Dismissing a menu must not hide its pin");
-    menu_action(app,&win,"number")?;
-    let report=probe(&win,receiver,r#"
-        await waitFor(() => document.querySelector('.pin-marking'));
-        const target=document.querySelector('.pin-image-content'), r=target.getBoundingClientRect();
-        for (const y of [.25,.5,.75]) target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.4,clientY:r.top+r.height*y}));
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 3);
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{nums:[...document.querySelectorAll('.pin-markers text')].map(n=>n.textContent)}});
-    "#)?;
-    assert_eq!(report["nums"],serde_json::json!(["1","2","3"]));
-    menu_action(app,&win,"undo")?;
-    probe(&win,receiver,r#"
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length===2);
-        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
-        target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.4,clientY:r.top+r.height*.75}));
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length===3);
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
-    "#)?;
-    menu_action(app,&win,"copy")?;
-    probe(&win,receiver,r#"
-        await waitFor(()=>document.querySelector('[role=status]')?.textContent==='已复制');
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{copied:true}});
-    "#)?;
+    assert!(!context["items"].as_array().unwrap().iter().any(|i|i["id"].as_str().is_some_and(|id|id.ends_with("/number")||id.ends_with("/undo")||id.ends_with("/clear"))));
+    verify_corner_resize(&win, receiver)?;
+    verify_opacity(app,&win,receiver)?;
+    // Legacy saved numbers remain visible, but new annotations belong to the studio.
+    for (i,y) in [90.0,180.0,270.0].into_iter().enumerate() {
+        tauri::async_runtime::block_on(pins::pin_mark(app.clone(),win.clone(),win.label().into(),"add".into(),Some(pins::NumberMark{x:220.0,y,radius:20.0+i as f64})))?;
+    }
+    ui_state(&win,receiver,3)?;
+    verify_edit(app,&win,receiver,root,true)?;
     action(app, panel, &win, "through", None)?;
     assert!(native_flags(app, &win).0);
     action(app, panel, &win, "hide", None)?;
@@ -292,6 +435,10 @@ fn write_phase(
     ))?;
     assert_eq!(pins::list_pins(app.clone()).len(), 3, "Capture repin reuses its own window");
     action(app, panel, &capture_pin, "opacity", Some(0.6))?;
+    action(app, panel, &win, "restore", None)?;
+    verify_layers(app, root)?;
+    action(app, panel, &win, "hide", None)?;
+    action(app, panel, &win, "through", None)?;
     std::fs::remove_file(root.join("source.png")).map_err(|e| e.to_string())?;
     app.state::<db::Db>().clear_history();
 
@@ -321,7 +468,7 @@ fn write_phase(
     )
     .map_err(|e| e.to_string())?;
     println!(
-        "PASS: live pin controls, number annotations, clipboard rendering; exiting with saved pins"
+        "PASS: native context menu, corner resize, original-size studio editing and legacy annotations; exiting with saved pins"
     );
     Ok(())
 }
@@ -331,6 +478,7 @@ fn reopen_phase(
     receiver: &mpsc::Receiver<serde_json::Value>,
     root: &std::path::Path,
 ) -> Result<(), String> {
+    verify_notes(app,panel,receiver,true)?;
     let expected: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("expected.json")).unwrap()).unwrap();
     assert!(!root.join("source.png").exists());
@@ -392,30 +540,7 @@ fn reopen_phase(
     assert!(!native_flags(app, &win).0);
     action(app, panel, &win, "restore", None)?;
     assert!(win.is_visible().unwrap());
-    menu_action(app,&win,"number")?;
-    probe(&win,receiver,r#"
-        await waitFor(()=>document.querySelector('.pin-marking'));
-        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
-        target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.6,clientY:r.top+r.height*.5}));
-        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===4);
-        if ([...document.querySelectorAll('.pin-markers text')].at(-1).textContent!=='4') throw Error('Number did not continue');
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
-    "#)?;
-    menu_action(app,&win,"undo")?;
-    menu_action(app,&win,"clear")?;
-    probe(&win,receiver,r#"
-        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===0);
-        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
-        target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.6,clientY:r.top+r.height*.5}));
-        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===1);
-        if(document.querySelector('.pin-markers text').textContent!=='1') throw Error('Clear did not reset numbering');
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
-    "#)?;
-    menu_action(app,&win,"copy")?;
-    probe(&win,receiver,r#"
-        await waitFor(()=>document.querySelector('[role=status]')?.textContent==='已复制');
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
-    "#)?;
+    verify_edit(app,&win,receiver,root,false)?;
     let capture_pin = app.get_webview_window("pin-media-1").ok_or("Capture pin not restored")?;
     wait_visible(&capture_pin);
     let capture_state = ui_state(&capture_pin, receiver, 0)?;
@@ -424,7 +549,7 @@ fn reopen_phase(
     action(app, panel, &win, "close", None)?;
     action(app, panel, &second, "close", None)?;
     assert!(pins::list_pins(app.clone()).is_empty());
-    println!("PASS: real restart restores images, markers, positions, zoom, opacity and visibility; numbering continues; close removes saved pins");
+    println!("PASS: restart restores pins, warm studio editing works without source history, and closing removes saved pins");
     Ok(())
 }
 
@@ -455,6 +580,10 @@ fn main() {
     let phase = args[1].clone();
     let root = std::path::PathBuf::from(&args[2]);
     let db = db::Db::open(&root.join("smoke.db")).unwrap();
+    db.ensure_defaults();
+    db.set_setting("locale", "zh-CN");
+    db.set_setting("notes_provider", "builtin");
+    db.set_setting("capture_preferences", "{\"editAfter\":false}");
     if phase == "write" {
         let fixture = root.join("source.png");
         if let Ok(source) = std::env::var("PIN_SMOKE_IMAGE") {
@@ -482,14 +611,21 @@ fn main() {
             assert_eq!(inserted, id);
         }
     }
+    if phase == "write" {
+        let id=db.insert_or_bump(&model::ClipInsert{kind:model::ClipKind::Text,text:Some("便签测试\nHello 📝".into()),html:None,image_path:None,file_paths:None,byte_size:32,hash:"note-fixture".into(),source_app:None,source_app_key:None,sensitive:false});assert_eq!(id,3);
+    }
     let pins = pins::Pins::open(&root.join("desktop-pins.sqlite")).unwrap();
     let (sender, receiver) = mpsc::channel();
     let mut context = tauri::generate_context!();
     context.config_mut().app.windows.clear();
-    context.config_mut().identifier = "io.pastenext.pins-smoke".into();
+    context.config_mut().identifier = format!("io.pastenext.{}", root.file_name().unwrap().to_string_lossy());
     tauri::Builder::default()
         .manage(db)
         .manage(pins)
+        .manage(pins::edit::EditState::default())
+        .manage(notes::Notes::open(&root.join("notes.sqlite")).unwrap())
+        .manage(capture::CaptureState::default())
+        .manage(capture::CaptureHotkeyErrors::default())
         .manage(Reports(Mutex::new(sender)))
         .manage(Output(root.clone()))
         .invoke_handler(tauri::generate_handler![
@@ -499,9 +635,23 @@ fn main() {
             pins::pin_mark,
             pins::pins_action,
             pins::list_pins,
+            pins::edit::pin_edit,
+            pins::edit::take_pin_edit,
+            pins::edit::apply_pin_edit,
+            pins::edit::cancel_pin_edit,
+            pins::opacity::pin_opacity_info,
+            pins::opacity::pin_opacity_set,
+            notes::clip_to_note,
+            notes::note_content,
+            notes::note_save,
+            capture::media_list,
+            capture::media_commit_image,
+            capture::capture_hotkey_errors,
+            capture::capture_status,
+            commands::read_image_base64,
             capture_copy,
             capture_context_menu,
-            get_settings,
+            commands::get_settings,
             smoke_report
         ])
         .setup(move |app| {
@@ -512,7 +662,10 @@ fn main() {
             )
             .visible(false)
             .build()?;
+            tauri::WebviewWindowBuilder::new(app, "studio", tauri::WebviewUrl::External("about:blank".parse().unwrap()))
+                .inner_size(1100.0, 760.0).visible(false).build()?;
             pins::restore_saved(app.handle());
+            notes::restore_saved(app.handle());
             let handle = app.handle().clone();
             let watchdog = handle.clone();
             std::thread::spawn(move || {
@@ -528,6 +681,8 @@ fn main() {
                             "reopen" => reopen_phase(&handle, &panel, &receiver, &root),
                             "empty" => {
                                 assert!(pins::list_pins(handle.clone()).is_empty());
+                                assert!(handle.get_webview_window("note-1").is_none(),"Hidden notes should stay hidden after restart");
+                                assert_eq!(handle.state::<notes::Notes>().list().unwrap()[0].text,"更新的便签\nSaved after typing");
                                 println!("PASS: closed pins stay removed after another restart");
                                 Ok(())
                             }

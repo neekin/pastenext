@@ -6,6 +6,12 @@ mod geometry;
 mod persistence;
 #[path = "pins/menu.rs"]
 pub mod menu;
+#[path = "pins/edit.rs"]
+pub mod edit;
+#[path = "pins/opacity.rs"]
+pub mod opacity;
+#[path = "pins/layers.rs"]
+pub mod layers;
 use base64::Engine;
 use persistence::{SavedPin, Store};
 use serde::{Deserialize, Serialize};
@@ -204,7 +210,7 @@ fn place(pin: &mut Pin, win: &WebviewWindow, position: Option<PinPosition>) -> R
     Ok(())
 }
 
-async fn on_main<R: Send + 'static>(
+pub(crate) async fn on_main<R: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&AppHandle) -> Result<R, String> + Send + 'static,
 ) -> Result<R, String> {
@@ -331,7 +337,16 @@ pub fn flush(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn pin_clip(app: AppHandle, window: WebviewWindow, id: i64) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
-        return Err("Desktop pins currently require macOS".into());
+        if window.label() != "panel" { return Err("Open pins from clipboard history".into()); }
+        let clip = app.state::<crate::db::Db>().get_clip(id).ok_or("Image no longer exists")?;
+        if clip.kind != crate::model::ClipKind::Image || clip.sensitive { return Err("Choose a non-sensitive image".into()); }
+        let path = clip.image_path.ok_or("Image file is missing")?;
+        let handle = app.clone();
+        let item = tauri::async_runtime::spawn_blocking(move || {
+            let mut bytes=Vec::new();std::fs::File::open(path).map_err(|e|e.to_string())?.take(MAX_BYTES+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
+            crate::capture::import_image_bytes(&handle,&bytes,"剪贴板贴图")
+        }).await.map_err(|e|e.to_string())??;
+        return crate::capture::media_pin(app,item.id).await;
     }
     if window.label() != "panel" {
         return Err("Open pins from clipboard history".into());
@@ -508,6 +523,24 @@ pub fn list_pins(app: AppHandle) -> Vec<PinInfo> {
         .map(|p| p.info.clone())
         .collect()
 }
+fn replace_image(app: &AppHandle, label: &str, bytes: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
+    let mut pin = app.state::<Pins>().0.lock().unwrap().get(label).cloned().ok_or("Pin no longer exists")?;
+    let mut old = pin.clone();
+    let scale = pin.pixel_width as f64 / pin.info.width;
+    pin.image = Arc::new(bytes); pin.pixel_width = width; pin.pixel_height = height;
+    pin.info.width = width as f64 / scale; pin.info.height = height as f64 / scale;
+    pin.info.marks.clear(); pin.info.hidden = false; pin.ready = false;
+    let win = app.get_webview_window(label).ok_or("Pin window is unavailable")?;
+    place(&mut pin, &win, Some(geometry::position(&win)?))?;
+    if let Err(e) = app.state::<Pins>().1.replace_image(&pin.saved(), &pin.image) {
+        let anchor = old.position; let _ = place(&mut old, &win, anchor); return Err(e);
+    }
+    let info = pin.info.clone();
+    app.state::<Pins>().0.lock().unwrap().insert(label.into(), pin);
+    changed(app, &info);
+    app.emit_to(label, "pin-image-updated", ()).map_err(|e| e.to_string())
+}
+
 fn commit(app: &AppHandle, pin: Pin) -> Result<(), String> {
     let label = pin.info.label.clone();
     let info = pin.info.clone();
@@ -542,11 +575,11 @@ fn update(app: &AppHandle, label: &str, action: &str, value: Option<f64>) -> Res
                 win.show().map_err(|e| e.to_string())?;
             }
         }
-        "zoom" => {
+        "zoom" | "resize" => {
             let factor = value
                 .filter(|v| v.is_finite() && *v > 0.0)
                 .ok_or("Invalid zoom")?;
-            pin.info.zoom *= factor;
+            pin.info.zoom = if action == "resize" { factor } else { pin.info.zoom * factor };
             let position = geometry::position(&win)?;
             place(&mut pin, &win, Some(position))?;
         }
@@ -582,6 +615,7 @@ fn update(app: &AppHandle, label: &str, action: &str, value: Option<f64>) -> Res
             }
         }
         "close" => {
+            if let Some(popover) = app.get_webview_window(&format!("opacity-{label}")) { let _ = popover.destroy(); }
             app.state::<Pins>().1.remove(label)?;
             if let Err(e) = win.destroy() {
                 let _ = app.state::<Pins>().1.insert(&pin.saved(), &pin.image);

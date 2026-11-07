@@ -52,6 +52,9 @@ pub fn build(
     #[cfg(not(target_os = "macos"))]
     let handles = TrayMenuItems {};
     handles.sync_pins(pins)?;
+    menu.append(&Submenu::with_id_and_items(app,"notes_menu",i18n::tr(locale,Key::Notes),true,&[
+        &item("notes_restore",Key::NotesRestore)?, &item("notes_hide",Key::NotesHide)?,
+    ])?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&settings)?;
 

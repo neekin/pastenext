@@ -159,6 +159,13 @@ impl Store {
         }
         Ok(())
     }
+    pub fn replace_image(&self, saved: &SavedPin, png: &[u8]) -> Result<(), String> {
+        saved.validate()?;
+        let state = serde_json::to_string(saved).map_err(|e| e.to_string())?;
+        let rows = self.0.lock().unwrap().execute("UPDATE pins SET state=?1,png=?2 WHERE label=?3", params![state,png,saved.info.label]).map_err(|e|e.to_string())?;
+        if rows != 1 { return Err("Saved pin no longer exists".into()); }
+        Ok(())
+    }
     pub fn remove(&self, label: &str) -> Result<(), String> {
         self.0
             .lock()
@@ -233,6 +240,28 @@ mod tests {
         assert!(Store::open(&path).unwrap().load().unwrap().is_empty());
         let _ = std::fs::remove_file(path);
     }
+    #[test]
+    fn replacement_preserves_old_snapshot_when_validation_fails() {
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        store.insert(&saved(), b"original snapshot").unwrap();
+        let mut replacement = saved();
+        replacement.info.marks.clear();
+        replacement.pixel_width = 400;
+        replacement.pixel_height = 200;
+        replacement.info.width = 200.0;
+        replacement.info.height = 100.0;
+        store.replace_image(&replacement, b"edited snapshot").unwrap();
+        let mut invalid = replacement.clone();
+        invalid.info.opacity = 0.0;
+        assert!(store.replace_image(&invalid, b"invalid snapshot").is_err());
+        let rows = store.load().unwrap();
+        assert_eq!(rows[0].1, b"edited snapshot");
+        assert_eq!((rows[0].0.pixel_width, rows[0].0.pixel_height), (400, 200));
+        assert!(rows[0].0.info.marks.is_empty());
+        assert_eq!(rows[0].0.info.opacity, replacement.info.opacity);
+        assert_eq!(rows[0].0.position, saved().position);
+    }
+
     #[test]
     fn legacy_history_pins_and_capture_pins_share_store_without_collisions() {
         let store = Store::open(Path::new(":memory:")).unwrap();

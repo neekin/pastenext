@@ -21,3 +21,12 @@ const portrait = imagePoint(150, 200, { width: 300, height: 400 }, { width: 600,
 assert.equal(portrait.x, 300);
 assert.equal(portrait.y, 600);
 console.log('✓ number mark coordinates: letterboxing, zoom, empty bounds, edge clamping, portrait images');
+
+const { draggedZoom } = await import('../src/pins/resize.ts');
+assert.equal(draggedZoom(1, 400, 200, 200, 100), 1.5);
+assert.equal(draggedZoom(1, 400, 200, -200, -100), 0.5);
+assert.equal(draggedZoom(1, 400, 200, 0, 0), 1);
+assert.equal(draggedZoom(0.5, 200, 100, 100, 50), 0.75);
+assert.ok(draggedZoom(1, 400, 200, -1000, -1000) > 0);
+assert.equal(draggedZoom(1, 0, 0, 5, 5), 1);
+console.log('✓ corner resize: aspect ratio, growth/shrink, absolute zoom and degenerate bounds');

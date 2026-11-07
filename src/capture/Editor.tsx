@@ -7,6 +7,7 @@ import {
 } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
+import { pins } from "../pins/api";
 import { mediaApi, type MediaAsset } from "./api";
 import {
   cropFor,
@@ -37,10 +38,12 @@ export default function Editor({
   asset,
   onShare,
   onSaved,
+  pinSessionId,
 }: {
   asset: MediaAsset;
   onShare: (asset: MediaAsset) => void;
   onSaved: () => void;
+  pinSessionId?: string;
 }) {
   const { locale } = useI18n();
   const l = (zh: string, en: string) => (locale === "en" ? en : zh);
@@ -228,7 +231,10 @@ export default function Editor({
         if (!result) setMessage(l("未识别到文字", "No text found"));
       }
       if (action === "share") onShare(current);
-      if (action === "pin") await mediaApi.pin(current.id);
+      if (action === "pin") {
+        if (pinSessionId) await pins.applyEdit(pinSessionId, current.id);
+        else await mediaApi.pin(current.id);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -273,7 +279,7 @@ export default function Editor({
     return () => window.removeEventListener("keydown", handler);
   }, [marks, redo, ready, busy, format, quality]);
   return (
-    <div className="capture-editor">
+    <div className="capture-editor" data-asset-id={asset.id}>
       <div className="capture-editor-top">
         <div>
           <strong>{asset.name}</strong>
@@ -296,8 +302,11 @@ export default function Editor({
           >
             ↷
           </button>
+          {pinSessionId && <button disabled={busy} onClick={() => {
+            void pins.cancelEdit(pinSessionId).catch(e => setError(String(e)));
+          }}>{l("取消编辑", "Cancel edit")}</button>}
           <button disabled={busy || !ready} onClick={() => void act("pin")}>
-            {l("贴图", "Pin")}
+            {pinSessionId ? l("使用图片", "Use image") : l("贴图", "Pin")}
           </button>
           <button disabled={busy || !ready} onClick={() => void act("ocr")}>
             {l("识别文字", "Extract text")}

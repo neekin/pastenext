@@ -579,6 +579,13 @@ export default function Settings() {
             </select>
           </div>
           <div className={row}>
+            <label className={lbl} htmlFor="notes-provider">{t("notes.provider")}</label>
+            <select id="notes-provider" value={settings.notes_provider ?? "system"} onChange={e => save("notes_provider", e.target.value)} className={inputCls}>
+              <option value="system">{t("notes.system")}</option><option value="builtin">{t("notes.builtin")}</option>
+            </select>
+          </div>
+          <p className="text-xs text-neutral-400">{t((settings.notes_provider ?? "system") === "builtin" ? "notes.builtinHint" : IS_MAC ? "notes.systemMacHint" : "notes.systemWindowsHint")}</p>
+          <div className={row}>
             <span className={lbl}>{t("settings.pastePlain")}</span>
             <input
               type="checkbox"

@@ -7,6 +7,7 @@ mod license;
 mod model;
 mod monitor;
 mod ocr;
+mod notes;
 mod platform;
 mod paste;
 mod capture;
@@ -367,6 +368,8 @@ pub fn run() {
             }
 
             app.manage(db);
+            app.manage(notes::Notes::open(&dir.join("desktop-notes.sqlite")).map_err(std::io::Error::other)?);
+            app.manage(pins::edit::EditState::default());
             app.manage(pins::Pins::open(&dir.join("desktop-pins.sqlite")).map_err(std::io::Error::other)?);
 
             app.manage(commands::TrayPrefs(Mutex::new(tray_left)));
@@ -459,12 +462,14 @@ pub fn run() {
                 studio.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
+                        let _ = pins::edit::cancel(w.app_handle());
                         transfer::transfer_stop(w.app_handle().clone());
                         let _ = w.hide();
                     }
                 });
             }
             pins::restore_saved(app.handle());
+            notes::restore_saved(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -498,8 +503,17 @@ pub fn run() {
             pins::pin_action,
             pins::pin_mark,
             pins::pin_context_menu,
+            pins::edit::pin_edit,
+            pins::edit::take_pin_edit,
+            pins::edit::apply_pin_edit,
+            pins::edit::cancel_pin_edit,
+            pins::opacity::pin_opacity_info,
+            pins::opacity::pin_opacity_set,
             pins::pins_action,
             pins::list_pins,
+            notes::clip_to_note,
+            notes::note_content,
+            notes::note_save,
             commands::list_clips,
             commands::get_clip,
             commands::read_image_base64,
@@ -561,6 +575,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                let _ = pins::edit::cancel(app);
                 if let Err(e) = pins::flush(app) { eprintln!("[pins] Final save failed: {e}"); }
             }
             if matches!(event, tauri::RunEvent::Exit) {

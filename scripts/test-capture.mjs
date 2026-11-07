@@ -19,3 +19,15 @@ const impulse=new Uint8ClampedArray(7*5*4);impulse[(2*7+3)*4]=255;blurPixels(imp
 assert.ok(impulse[(2*7+3)*4]>0&&impulse[(2*7+3)*4]<255);
 assert.equal(impulse[(2*7+2)*4],impulse[(2*7+4)*4]);
 console.log('Capture geometry, immutable undo/redo and blur checks passed');
+
+const { marksFromPin } = await import('../src/capture/pinEdits.ts');
+const pinMarks = [{ x: 200, y: 150, radius: 26 }, { x: 400, y: 300, radius: 13 }];
+const studioMarks = marksFromPin(pinMarks);
+assert.deepEqual(studioMarks.map(m => [m.tool, m.text, m.from, m.pinRadius]), [
+  ['number', '1', { x: 200, y: 150 }, 26], ['number', '2', { x: 400, y: 300 }, 13],
+]);
+const restoredPin = { marks: studioMarks, redo: [] };
+assert.equal(editHistory(restoredPin, {type:'undo'}).marks.length, 1);
+assert.deepEqual(editHistory(editHistory(restoredPin, {type:'undo'}), {type:'redo'}), restoredPin);
+assert.deepEqual(pinMarks, [{ x: 200, y: 150, radius: 26 }, { x: 400, y: 300, radius: 13 }]);
+console.log('✓ pin edit: original coordinates and number styles remain editable with undo/redo');

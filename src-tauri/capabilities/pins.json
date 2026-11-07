@@ -1,6 +1,6 @@
 {
   "identifier": "pins",
   "description": "Local image-pin windows: events and native dragging",
-  "windows": ["pin-*"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "windows": ["pin-*", "opacity-*"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-hide"]
 }

@@ -7,6 +7,9 @@ import { useI18n } from "../i18n";
 import { api } from "../api";
 import { mediaApi, type MediaAsset, type CaptureOptions } from "./api";
 import Editor from "./Editor";
+import { pins } from "../pins/api";
+import { marksFromPin } from "./pinEdits";
+import { drafts } from "./history";
 import Transfer from "./Transfer";
 import LongCapture from "./LongCapture";
 import Preferences from "./Preferences";
@@ -23,6 +26,7 @@ export default function Studio() {
     [assets, setAssets] = useState<MediaAsset[]>([]),
     [active, setActive] = useState<MediaAsset | null>(null),
     [shared, setShared] = useState<MediaAsset | null>(null);
+  const [pinSession, setPinSession] = useState<{ id: string; label: string } | null>(null);
   const [exporting, setExporting] = useState(false),
     [videoQuality, setVideoQuality] = useState(90);
   const [scrollKey, setScrollKey] = useState(SCROLL_HOTKEY);
@@ -67,6 +71,21 @@ export default function Studio() {
         } catch {}
       }
     });
+    let alive = true;
+    const openPinEdit = async () => {
+      if (!alive) return;
+      const request = await pins.takeEdit();
+      if (!alive || !request) return;
+      drafts.set(request.asset.id, { marks: marksFromPin(request.marks), redo: [] });
+      setPinSession({ id: request.asset.id, label: request.pinLabel });
+      setActive(request.asset);
+      setTab("edit");
+      setError(""); setNotice("");
+      void refresh();
+    };
+    const pinEdit = listen("pin-edit-ready", () => { void openPinEdit().catch(e => setError(String(e))); }, { target: { kind: "WebviewWindow", label: "studio" } });
+    void pinEdit.then(() => openPinEdit()).catch(e => setError(String(e)));
+    const pinEnded = listen<string>("pin-edit-ended", event => setPinSession(s => s?.id === event.payload ? null : s), { target: { kind: "WebviewWindow", label: "studio" } });
     const modes=listen<CaptureOptions>("capture-options-updated",e=>setOptions(e.payload));
     const u = listen<MediaAsset>("media-updated", () => void refresh());
     const er = listen<string>("capture-error", (e) => setError(e.payload));
@@ -91,7 +110,8 @@ export default function Studio() {
         }),
     );
     return () => {
-      for (const p of [u, er, open, ready, state, modes]) p.then((f) => f());
+      alive = false;
+      for (const p of [u, er, open, ready, state, modes, pinEdit, pinEnded]) p.then((f) => f());
     };
   }, []);
   useEffect(() => {
@@ -114,6 +134,12 @@ export default function Studio() {
       focus.then((f) => f());
     };
   }, [recording]);
+  useEffect(() => {
+    if (pinSession && (tab !== "edit" || active?.id !== pinSession.id)) {
+      void pins.cancelEdit(pinSession.id, false).catch(e => setError(String(e)));
+      setPinSession(null);
+    }
+  }, [pinSession, tab, active?.id]);
   const setOption = (next: Partial<CaptureOptions>) => {
     const value = { ...options, ...next };
     setOptions(value);
@@ -458,6 +484,7 @@ export default function Studio() {
             <Editor
               key={active.id}
               asset={active}
+              pinSessionId={pinSession?.id === active.id ? pinSession.id : undefined}
               onShare={share}
               onSaved={() => void refresh()}
             />

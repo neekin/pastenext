@@ -31,6 +31,7 @@ export interface QueueStatus {
 }
 
 export const api = {
+  clipToNote: (id: number) => invoke<string>("clip_to_note", { id }),
   listClips: (p: ListParams) =>
     invoke<Clip[]>("list_clips", {
       query: p.query ?? null,

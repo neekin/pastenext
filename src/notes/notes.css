@@ -1,0 +1,5 @@
+.sticky-note { display: flex; flex-direction: column; width: 100vw; height: 100vh; background: #fff2ad; color: #514519; }
+.sticky-note textarea { flex: 1; min-height: 0; border: 0; outline: none; resize: none; background: transparent; color: inherit; padding: 18px 17px 8px; font: 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.sticky-note textarea::placeholder { color: #a7985f; }
+.sticky-status { padding: 6px 16px 10px; font: 10px -apple-system, sans-serif; color: #a39459; }
+.sticky-status[role=alert] { color: #9b3232; }

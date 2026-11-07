@@ -5,6 +5,8 @@ import { api, onSettingsChanged } from "./api";
 import { applyTheme } from "./theme";
 import { useI18n, type Locale } from "./i18n";
 
+const StickyNote = lazy(() => import("./notes/StickyNote"));
+const PinOpacity = lazy(() => import("./pins/PinOpacity"));
 const PinWindow = lazy(() => import("./pins/PinWindow"));
 const PinnedImage = lazy(() => import("./capture/PinnedImage"));
 const Studio = lazy(() => import("./capture/Studio"));
@@ -12,6 +14,8 @@ const Studio = lazy(() => import("./capture/Studio"));
 export default function App() {
   // 双入口:index.html → 面板,settings.html → 设置窗口
   const isPin = window.location.pathname.endsWith("pin.html");
+  const isNote = new URLSearchParams(window.location.search).has("sticky-note");
+  const isOpacity = new URLSearchParams(window.location.search).has("pin-opacity");
   const isDesktopPin = new URLSearchParams(window.location.search).has("pin");
   const isStudio = window.location.pathname.endsWith("studio.html");
   const isSettings = window.location.pathname.endsWith("settings.html");
@@ -20,10 +24,10 @@ export default function App() {
   // 启动后台回填来源图标:老数据只有应用名,按名反查图标写回 DB。
   // fire-and-forget;有补齐时 Rust 端广播 clips-updated,列表自动刷新。
   useEffect(() => {
-    if (isSettings || isStudio || isPin || isDesktopPin) return;
+    if (isSettings || isStudio || isPin || isDesktopPin || isOpacity || isNote) return;
     api.backfillSourceAppKeys().catch(() => {});
     // App 单例常驻,只在首次挂载跑一次
-  }, [isSettings, isStudio, isPin, isDesktopPin]);
+  }, [isSettings, isStudio, isPin, isDesktopPin, isOpacity, isNote]);
 
   useEffect(() => {
     const refresh = () =>
@@ -54,5 +58,5 @@ export default function App() {
     };
   }, [setLocale]);
 
-  return isDesktopPin ? <Suspense fallback={<div />}><PinWindow /></Suspense> : isPin ? <Suspense fallback={<div/>}><PinnedImage/></Suspense> : isStudio ? <Suspense fallback={<div /> }><Studio /></Suspense> : isSettings ? <Settings /> : <Panel />;
+  return isNote ? <Suspense fallback={<div />}><StickyNote /></Suspense> : isOpacity ? <Suspense fallback={<div />}><PinOpacity /></Suspense> : isDesktopPin ? <Suspense fallback={<div />}><PinWindow /></Suspense> : isPin ? <Suspense fallback={<div/>}><PinnedImage/></Suspense> : isStudio ? <Suspense fallback={<div /> }><Studio /></Suspense> : isSettings ? <Settings /> : <Panel />;
 }

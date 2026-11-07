@@ -215,6 +215,7 @@ impl Db {
             ("max_items", "0"),
             ("retention_days", "0"),
             ("theme", "system"),
+            ("notes_provider", "system"),
             ("auto_paste", "true"),
             ("show_dock_icon", "false"),
             ("show_tray_icon", "true"),
