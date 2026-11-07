@@ -4,6 +4,8 @@
 mod geometry;
 #[path = "pins/persistence.rs"]
 mod persistence;
+#[path = "pins/menu.rs"]
+pub mod menu;
 use base64::Engine;
 use persistence::{SavedPin, Store};
 use serde::{Deserialize, Serialize};
@@ -20,7 +22,6 @@ use tauri::{
 const MAX_PINS: usize = 20;
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
 const MIN_EDGE: f64 = 120.0;
-const TOOLBAR_HEIGHT: f64 = 89.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct NumberMark {
@@ -176,15 +177,15 @@ fn moved(app: &AppHandle, label: &str) {
 
 fn fit_zoom(width: f64, height: f64, requested: f64, available: (f64, f64)) -> f64 {
     let maximum = (available.0 / width)
-        .min((available.1 - TOOLBAR_HEIGHT).max(1.0) / height)
+        .min(available.1 / height)
         .min(4.0);
     let minimum = (MIN_EDGE / width.max(height)).max(0.05).min(maximum);
     requested.clamp(minimum, maximum)
 }
 fn size_for(width: f64, height: f64, zoom: f64) -> LogicalSize<f64> {
     LogicalSize::new(
-        (width * zoom).max(240.0),
-        (height * zoom).max(80.0) + TOOLBAR_HEIGHT,
+        (width * zoom).max(1.0),
+        (height * zoom).max(1.0),
     )
 }
 fn size(pin: &Pin) -> LogicalSize<f64> {
@@ -239,6 +240,14 @@ fn open_window(app: &AppHandle, label: &str) -> Result<(), String> {
         .resizable(false)
         .focused(false)
         .visible(false)
+        .on_menu_event(|window, event| {
+            let prefix = format!("pin/{}/", window.label());
+            if let Some(action) = event.id().as_ref().strip_prefix(&prefix) {
+                if let Err(e) = menu::handle(window.app_handle(), window.label(), action) {
+                    report_save_error(window.app_handle(), window.label(), &e);
+                }
+            }
+        })
         .inner_size(size(&pin).width, size(&pin).height)
         .build()
         .map_err(|e| e.to_string())?;
@@ -612,16 +621,19 @@ pub async fn pin_mark(
     if window.label() != label {
         return Err("Annotate in the pin window".into());
     }
-    on_main(app, move |app| {
+    on_main(app, move |app| change_marks(app, &label, &action, mark)).await
+}
+
+fn change_marks(app: &AppHandle, label: &str, action: &str, mark: Option<NumberMark>) -> Result<(), String> {
         let mut pin = app
             .state::<Pins>()
             .0
             .lock()
             .unwrap()
-            .get(&label)
+            .get(label)
             .cloned()
             .ok_or("Pin no longer exists")?;
-        match action.as_str() {
+        match action {
             "add" => {
                 if pin.info.marks.len() >= 999 {
                     return Err("Maximum 999 number marks".into());
@@ -637,9 +649,23 @@ pub async fn pin_mark(
             _ => return Err("Unknown annotation action".into()),
         }
         commit(app, pin)
-    })
-    .await
 }
+
+#[tauri::command]
+pub async fn pin_context_menu(
+    app: AppHandle, window: WebviewWindow, x: f64, y: f64, marking: bool,
+) -> Result<(), String> {
+    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
+        return Err("Invalid menu position".into());
+    }
+    on_main(app, move |app| {
+        let info = app.state::<Pins>().0.lock().unwrap().get(window.label())
+            .ok_or("Pin no longer exists")?.info.clone();
+        let menu = menu::build(app, &info, marking).map_err(|e| e.to_string())?;
+        window.popup_menu_at(&menu, tauri::LogicalPosition::new(x, y)).map_err(|e| e.to_string())
+    }).await
+}
+
 pub fn all(app: &AppHandle, action: &str) -> Result<(), String> {
     if !matches!(action, "hide" | "restore" | "unlock") {
         return Err("Unknown group action".into());
@@ -680,18 +706,23 @@ pub async fn pins_action(
 mod tests {
     use super::*;
     #[test]
-    fn large_retina_image_fits_screen_with_controls() {
+    fn large_retina_image_fits_screen_without_chrome() {
         let z = fit_zoom(3000.0, 2000.0, 1.0, (1440.0, 900.0));
         assert!(3000.0 * z <= 1440.0);
-        assert!(2000.0 * z + TOOLBAR_HEIGHT <= 900.0);
+        assert!(2000.0 * z <= 900.0);
     }
     #[test]
     fn extreme_aspect_ratios_and_small_screens_do_not_panic() {
         for (w, h) in [(1.0, 20000.0), (20000.0, 1.0), (10.0, 10.0)] {
             let z = fit_zoom(w, h, 100.0, (800.0, 600.0));
             assert!(z > 0.0 && z <= 4.0);
-            assert!(w * z <= 800.0 && h * z + TOOLBAR_HEIGHT <= 600.0);
+            assert!(w * z <= 800.0 && h * z <= 600.0);
         }
+    }
+    #[test]
+    fn window_dimensions_match_the_image_without_a_footer_or_minimum_gutter() {
+        let size = size_for(100.0, 60.0, 0.5);
+        assert_eq!((size.width, size.height), (50.0, 30.0));
     }
     #[test]
     fn repeated_zoom_cannot_make_normal_images_unrecoverably_small() {

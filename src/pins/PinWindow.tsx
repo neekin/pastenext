@@ -13,14 +13,15 @@ export default function PinWindow() {
   const [marking, setMarking] = useState(false);
   const marks = info?.marks ?? [];
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [copying, setCopying] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const copying = useRef(false);
+  const menuOpen = useRef(false);
+  const [feedback, setFeedback] = useState("");
   const imageRef = useRef<HTMLImageElement>(null);
   const [error, setError] = useState("");
   const surface = useRef<HTMLDivElement>(null);
   const chain = useRef(Promise.resolve());
   const label = getCurrentWindow().label;
-  // Serialize input so rapid wheel/slider events cannot overwrite newer native state.
+  // Serialize image operations so rapid wheel input cannot overwrite newer state.
   const enqueue = useCallback((operation: () => Promise<void>) => {
     chain.current = chain.current.then(operation)
       .then(() => setError("")).catch((e) => setError(String(e)));
@@ -29,36 +30,50 @@ export default function PinWindow() {
     enqueue(() => pins.action(label, action, value));
   }, [enqueue, label]);
   const annotate = (action: "add" | "undo" | "clear", mark?: NumberMark) => {
-    setCopied(false);
     enqueue(() => pins.mark(label, action, mark));
   };
+  const copy = useCallback(async () => {
+    if (!imageRef.current?.naturalWidth || copying.current) return;
+    copying.current = true;
+    try {
+      await chain.current;
+      const content = await pins.content();
+      await pins.copy(renderAnnotatedImage(imageRef.current, content.info.marks));
+      setError(""); setFeedback(t("pins.copied"));
+    } catch (e) { setError(String(e)); }
+    finally { copying.current = false; }
+  }, [t]);
 
   useEffect(() => {
     let alive = true;
-    let unlisten: (() => void) | undefined;
-    let stopErrors: (() => void) | undefined;
+    const stops: (() => void)[] = [];
+    const subscribe = async <T,>(name: string, callback: (value: T) => void) => {
+      const stop = await listen<T>(name, event => { if (alive) callback(event.payload); });
+      if (alive) stops.push(stop); else stop();
+    };
     void (async () => {
-      const stop = await listen<PinInfo>("pin-changed", (event) => {
-        if (alive && event.payload.label === label) setInfo(event.payload);
+      await subscribe<PinInfo>("pin-changed", value => { if (value.label === label) setInfo(value); });
+      await subscribe<string>("pin-save-error", value => setError(String(value)));
+      await subscribe<string>("pin-menu-action", action => {
+        if (action === "copy") void copy();
+        if (action === "number") setMarking(value => !value);
       });
-      if (!alive) { stop(); return; }
-      unlisten = stop;
-      const stopSaveErrors = await listen<string>("pin-save-error", (event) => {
-        if (alive) setError(String(event.payload));
-      });
-      if (!alive) { stopSaveErrors(); return; }
-      stopErrors = stopSaveErrors;
       const content = await pins.content();
       if (alive) { setInfo(content.info); setImage(content.image); }
     })().catch((e) => {
       if (alive) {
         setError(String(e));
-        // Show a recoverable error rather than leaving an invisible pin behind.
         void pins.action(label, "ready").catch(() => {});
       }
     });
-    return () => { alive = false; unlisten?.(); stopErrors?.(); };
-  }, [label]);
+    return () => { alive = false; stops.forEach(stop => stop()); };
+  }, [label, copy]);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const timeout = setTimeout(() => setFeedback(""), 1500);
+    return () => clearTimeout(timeout);
+  }, [feedback]);
 
   useEffect(() => {
     const node = surface.current;
@@ -66,8 +81,8 @@ export default function PinWindow() {
     let delta = 0;
     let frame = 0;
     const wheel = (event: WheelEvent) => {
-      if ((event.target as HTMLElement).closest("button, input")) return;
       event.preventDefault();
+      if (menuOpen.current) return;
       delta += event.deltaY * (event.deltaMode === 1 ? 16 : 1);
       if (!frame) frame = requestAnimationFrame(() => {
         act("zoom", Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.003));
@@ -83,25 +98,26 @@ export default function PinWindow() {
     if (img) setDimensions({ width: img.naturalWidth, height: img.naturalHeight });
     act("ready");
   };
-  const copy = async () => {
-    if (!imageRef.current || copying) return;
-    setCopying(true);
-    setCopied(false);
-    try {
-      await chain.current;
-      const content = await pins.content();
-      await pins.copy(renderAnnotatedImage(imageRef.current, content.info.marks));
-      setError(""); setCopied(true);
-    } catch (e) { setError(String(e)); }
-    finally { setCopying(false); }
+  const showMenu = async (x: number, y: number) => {
+    if (!info || menuOpen.current) return;
+    menuOpen.current = true;
+    try { await chain.current; await pins.menu(x, y, marking); }
+    catch (e) { setError(String(e)); }
+    finally { menuOpen.current = false; }
   };
   return (
-    <div ref={surface} className={`pin-window ${info?.clickThrough ? "pin-through" : ""}`} tabIndex={0}
-      onContextMenu={(e) => e.preventDefault()}
+    <div ref={surface} className="pin-window" tabIndex={0}
+      onContextMenu={(e) => { e.preventDefault(); void showMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => {
-        if (e.target instanceof HTMLInputElement) return;
+        if (menuOpen.current) return;
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
           e.preventDefault(); annotate("undo"); return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+          e.preventDefault(); void copy(); return;
+        }
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          e.preventDefault(); void showMenu(innerWidth / 2, innerHeight / 2); return;
         }
         if (e.key === "Escape" && marking) { e.preventDefault(); setMarking(false); return; }
         if (e.key === "Escape") { e.preventDefault(); act("hide"); }
@@ -110,11 +126,12 @@ export default function PinWindow() {
       }}>
       <div className={`pin-image-area ${marking ? "pin-marking" : ""}`} title={t(marking ? "pins.numberHint" : "pins.dragHint")}
         onMouseDown={(e) => {
-          if (e.button === 0 && !marking) void getCurrentWindow().startDragging().catch((err) => setError(String(err)));
+          if (e.button === 0 && !e.ctrlKey && !marking && !menuOpen.current)
+            void getCurrentWindow().startDragging().catch((err) => setError(String(err)));
         }}>
         <div className="pin-image-content" style={{ width: (info?.width ?? 0) * (info?.zoom ?? 1), height: (info?.height ?? 0) * (info?.zoom ?? 1) }}
           onClick={(e) => {
-            if (!marking) return;
+            if (!marking || e.ctrlKey || menuOpen.current) return;
             const box = e.currentTarget.getBoundingClientRect();
             const point = imagePoint(e.clientX - box.left, e.clientY - box.top, box, dimensions);
             if (point) annotate("add", point);
@@ -132,33 +149,7 @@ export default function PinWindow() {
         </svg>}
         </div>
       </div>
-      <div className="pin-controls">
-        <div className="pin-control-row">
-          <button className={`pin-text-button ${marking ? "pin-tool-active" : ""}`} aria-pressed={marking}
-            title={t("pins.numberHint")} onClick={() => setMarking(!marking)}>{t("pins.numbers")} {marks.length + 1}</button>
-          <button className="pin-text-button" disabled={!marks.length} onClick={() => { annotate("undo"); }}>{t("pins.undo")}</button>
-          <button className="pin-text-button" disabled={!marks.length} onClick={() => { annotate("clear"); }}>{t("pins.clear")}</button>
-          <span className="pin-spacer" />
-          <button className="pin-text-button" disabled={copying || !dimensions.width} onClick={() => void copy()}>{t(copied ? "pins.copied" : "pins.copy")}</button>
-        </div>
-        <div className="pin-control-row">
-          <button title={t("pins.zoomOut")} aria-label={t("pins.zoomOut")} onClick={() => act("zoom", 1 / 1.1)}>−</button>
-          <span className="pin-scale">{Math.round((info?.zoom ?? 1) * 100)}%</span>
-          <button title={t("pins.zoomIn")} aria-label={t("pins.zoomIn")} onClick={() => act("zoom", 1.1)}>+</button>
-          <label className="pin-opacity" title={t("pins.opacity")}>
-            <span>◐</span>
-            <input aria-label={t("pins.opacity")} type="range" min="15" max="100"
-              value={Math.round((info?.opacity ?? 1) * 100)} onChange={(e) => act("opacity", Number(e.target.value) / 100)} />
-            <span>{Math.round((info?.opacity ?? 1) * 100)}%</span>
-          </label>
-        </div>
-        <div className="pin-control-row">
-          <button className="pin-text-button" title={t("pins.throughHint")} onClick={() => act("through")}>{t("pins.through")}</button>
-          <span className="pin-spacer" />
-          <button className="pin-text-button" onClick={() => act("hide")}>{t("pins.hide")}</button>
-          <button className="pin-text-button" onClick={() => act("close")}>{t("pins.close")}</button>
-        </div>
-      </div>
+      {feedback && <div className="pin-feedback" role="status">{feedback}</div>}
       {error && <div className="pin-error" role="alert">{t("pins.failed")}: {error}</div>}
     </div>
   );

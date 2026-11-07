@@ -497,6 +497,7 @@ pub fn run() {
             pins::pin_content,
             pins::pin_action,
             pins::pin_mark,
+            pins::pin_context_menu,
             pins::pins_action,
             pins::list_pins,
             commands::list_clips,

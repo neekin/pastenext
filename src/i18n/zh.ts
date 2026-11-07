@@ -9,7 +9,7 @@ export const zhCN = {
 
   "pins.create": "贴到桌面",
   "pins.manager": "贴图",
-  "pins.dragHint": "拖动图片移动 · 滚轮缩放",
+  "pins.dragHint": "拖动图片移动 · 滚轮缩放 · 右键打开菜单",
   "pins.image": "桌面贴图",
   "pins.imageError": "无法显示这张图片",
   "pins.zoomOut": "缩小",

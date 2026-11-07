@@ -16,6 +16,7 @@ export interface PinInfo {
 }
 export type PinAction = "ready" | "zoom" | "opacity" | "through" | "unlock" | "hide" | "restore" | "close";
 export const pins = {
+  menu: (x: number, y: number, marking: boolean) => invoke<void>("pin_context_menu", { x, y, marking }),
   create: (id: number) => invoke<void>("pin_clip", { id }),
   mark: (label: string, action: "add" | "undo" | "clear", mark?: NumberMark) =>
     invoke<void>("pin_mark", { label, action, mark: mark ?? null }),

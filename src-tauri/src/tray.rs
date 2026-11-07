@@ -1,8 +1,11 @@
-use crate::i18n::{self, Key};
+use crate::i18n;
 use crate::{show_panel, toggle_panel};
 use std::sync::Mutex;
 use tauri::image::Image;
-use tauri::menu::{IsMenuItem, Menu, MenuItem};
+use tauri::menu::Menu;
+#[path = "tray/menu.rs"]
+mod menu;
+pub use menu::TrayMenuItems;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -30,85 +33,28 @@ fn tray_icon() -> Image<'static> {
 /// 托盘菜单项句柄,切换语言时用于就地更新文案
 pub struct TrayMenus(pub Mutex<Option<TrayMenuItems>>);
 
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct TrayMenuItems {
-    pub show: MenuItem<Wry>,
-    pub settings: MenuItem<Wry>,
-    pub activate: MenuItem<Wry>,
-    pub quit: MenuItem<Wry>,
+/// Group capture, pin management and app settings into separate native menus.
+pub fn build_tray_menu(app: &AppHandle) -> tauri::Result<(Menu<Wry>, TrayMenuItems)> {
+    let locale = resolve_locale(app);
+    let activated = app.try_state::<crate::db::Db>()
+        .and_then(|d| d.get_setting(crate::license::K_ACTIVATED)).as_deref() == Some("true");
     #[cfg(target_os = "macos")]
-    pub accessibility: MenuItem<Wry>,
+    let accessibility_granted = crate::platform::is_accessibility_trusted();
+    #[cfg(not(target_os = "macos"))]
+    let accessibility_granted = true;
+    menu::build(app, &locale, activated, accessibility_granted, &saved_pins(app))
 }
 
-/// 构建托盘菜单。
-///
-/// 已激活时隐藏「激活…」项;已授权辅助功能时隐藏「辅助功能权限…」项。
-/// 判断依据:激活状态读 DB 的 `license_activated`,辅助功能读系统 `AXIsProcessTrusted`。
-pub fn build_tray_menu(
-    app: &AppHandle,
-) -> tauri::Result<(Menu<Wry>, TrayMenuItems)> {
-    let locale = resolve_locale(app);
+fn saved_pins(app: &AppHandle) -> Vec<crate::pins::PinInfo> {
+    app.try_state::<crate::pins::Pins>().map(|_| crate::pins::list_pins(app.clone())).unwrap_or_default()
+}
 
-    let show = MenuItem::with_id(app, "show", i18n::tr(&locale, Key::Show), true, None::<&str>)?;
-    let settings =
-        MenuItem::with_id(app, "settings", i18n::tr(&locale, Key::Settings), true, None::<&str>)?;
-    let activate =
-        MenuItem::with_id(app, "activate", i18n::tr(&locale, Key::Activate), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", i18n::tr(&locale, Key::Quit), true, None::<&str>)?;
-    let en=locale=="en";
-    let capture=MenuItem::with_id(app,"capture",if en{"Take screenshot"}else{"截图"},true,None::<&str>)?;
-    let record=MenuItem::with_id(app,"record",if en{"Start / stop recording"}else{"开始 / 结束录屏"},true,None::<&str>)?;
-    let studio=MenuItem::with_id(app,"studio",if en{"Capture studio / phone transfer…"}else{"截图工作台 / 手机传图…"},true,None::<&str>)?;
-
-    #[cfg(target_os = "macos")]
-    let accessibility = MenuItem::with_id(
-        app,
-        "accessibility",
-        i18n::tr(&locale, Key::Accessibility),
-        true,
-        None::<&str>,
-    )?;
-
-    // 已激活 → 不再展示「激活…」
-    let activated = app
-        .try_state::<crate::db::Db>()
-        .and_then(|d| d.get_setting(crate::license::K_ACTIVATED))
-        .as_deref()
-        == Some("true");
-    // 已授权辅助功能 → 不再展示「辅助功能权限…」
-    #[cfg(target_os = "macos")]
-    let ax_granted = crate::platform::is_accessibility_trusted();
-
-    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&show, &capture, &record, &studio, &settings];
-    #[cfg(target_os = "macos")]
-    if !ax_granted {
-        items.push(&accessibility);
+fn sync_pin_menu(app: &AppHandle) {
+    let handles = app.try_state::<TrayMenus>()
+        .and_then(|state| state.0.lock().ok().and_then(|items| items.clone()));
+    if let Some(handles) = handles {
+        if let Err(e) = handles.sync_pins(&saved_pins(app)) { eprintln!("[tray] Cannot update pins menu: {e}"); }
     }
-    if !activated {
-        items.push(&activate);
-    }
-    items.push(&quit);
-
-    #[cfg(target_os = "macos")]
-    let pin_items = [
-        MenuItem::with_id(app, "pins_hide", i18n::tr(&locale, Key::PinsHide), true, None::<&str>)?,
-        MenuItem::with_id(app, "pins_restore", i18n::tr(&locale, Key::PinsRestore), true, None::<&str>)?,
-        MenuItem::with_id(app, "pins_unlock", i18n::tr(&locale, Key::PinsUnlock), true, None::<&str>)?,
-    ];
-    #[cfg(target_os = "macos")]
-    for item in &pin_items { items.insert(items.len() - 1, item); }
-    let menu = Menu::with_items(app, &items)?;
-
-    let tray_items = TrayMenuItems {
-        show,
-        settings,
-        activate,
-        quit,
-        #[cfg(target_os = "macos")]
-        accessibility,
-    };
-    Ok((menu, tray_items))
 }
 
 /// 依据当前状态(激活 / 辅助功能授权)重建托盘菜单并就地替换。
@@ -171,6 +117,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button_state: MouseButtonState::Down, .. } = event {
+                sync_pin_menu(tray.app_handle());
+                return;
+            }
             // 菜单由系统在配置的按键上弹出;这里处理另一个按键 → 唤起面板
             if let TrayIconEvent::Click {
                 button,

@@ -3,6 +3,10 @@
 //! cargo run --manifest-path src-tauri/Cargo.toml --example pins_smoke --features tauri/custom-protocol
 //! Optional PIN_SMOKE_IMAGE supplies a PNG. No clipboard monitor, hotkeys or user DB are used.
 #![allow(dead_code)]
+#[path = "../src/i18n.rs"]
+mod i18n;
+#[path = "../src/tray/menu.rs"]
+mod tray_layout;
 #[path = "../src/db.rs"]
 mod db;
 #[path = "../src/model.rs"]
@@ -44,6 +48,77 @@ fn capture_copy(app: tauri::AppHandle, png: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
     std::fs::write(app.state::<Output>().0.join("annotated.png"), bytes).map_err(|e| e.to_string())
+}
+
+// Record the real native menu, open it, then dismiss it inside this test app.
+// No Accessibility permission or input to other applications is needed.
+#[tauri::command(rename = "pin_context_menu")]
+async fn capture_context_menu(app: tauri::AppHandle, window: WebviewWindow, x: f64, y: f64, marking: bool) -> Result<(), String> {
+    let info = pins::list_pins(app.clone()).into_iter().find(|p| p.label == window.label()).ok_or("No pin")?;
+    let menu = pins::menu::build(&app, &info, marking).map_err(|e| e.to_string())?;
+    let description = describe_items(menu.items().map_err(|e| e.to_string())?);
+    let path = app.state::<Output>().0.join("context-menu.json");
+    let select_copy = x == 21.0;
+    #[cfg(target_os = "macos")]
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        unsafe {
+            use objc2::{class, msg_send, runtime::AnyObject};
+            use objc2_foundation::NSPoint;
+            let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let keys: &[(&str,u16)] = if select_copy { &[("\u{f701}",125),("\r",36)] } else { &[("\u{1b}",53)] };
+            for &(characters,code) in keys {
+                let characters = objc2_foundation::NSString::from_str(characters);
+                for kind in [10usize, 11usize] {
+                    let event: *mut AnyObject = msg_send![class!(NSEvent),
+                        keyEventWithType: kind, location: NSPoint::new(0.0, 0.0), modifierFlags: 0usize,
+                        timestamp: 0.0f64, windowNumber: 0isize, context: std::ptr::null::<AnyObject>(),
+                        characters: &*characters, charactersIgnoringModifiers: &*characters,
+                        isARepeat: false, keyCode: code];
+                    let _: () = msg_send![application, postEvent: event, atStart: false];
+                }
+                std::thread::sleep(Duration::from_millis(60));
+            }
+        }
+    });
+    pins::pin_context_menu(app, window, x, y, marking).await?;
+    std::fs::write(path, serde_json::to_vec_pretty(&serde_json::json!({"x":x,"y":y,"items":description,"dismissed":true,"selectedCopy":select_copy})).unwrap()).map_err(|e| e.to_string())
+}
+fn describe_items(items: Vec<tauri::menu::MenuItemKind<tauri::Wry>>) -> serde_json::Value {
+    use tauri::menu::MenuItemKind;
+    serde_json::Value::Array(items.into_iter().map(|item| {
+        let id = item.id().as_ref().to_string();
+        match item {
+            MenuItemKind::MenuItem(i) => serde_json::json!({"id":id,"text":i.text().unwrap(),"enabled":i.is_enabled().unwrap()}),
+            MenuItemKind::Check(i) => serde_json::json!({"id":id,"text":i.text().unwrap(),"checked":i.is_checked().unwrap(),"enabled":i.is_enabled().unwrap()}),
+            MenuItemKind::Submenu(i) => serde_json::json!({"id":id,"text":i.text().unwrap(),"items":describe_items(i.items().unwrap())}),
+            _ => serde_json::json!({"separator":true}),
+        }
+    }).collect())
+}
+fn menu_action(app: &tauri::AppHandle, win: &WebviewWindow, command: &str) -> Result<(), String> {
+    let (tx,rx)=mpsc::sync_channel(1);
+    let handle=app.clone(); let label=win.label().to_string(); let command=command.to_string();
+    app.run_on_main_thread(move || { let _=tx.send(pins::menu::handle(&handle,&label,&command)); }).unwrap();
+    rx.recv_timeout(Duration::from_secs(5)).map_err(|e|e.to_string())?
+}
+fn verify_tray_menu(app: &tauri::AppHandle, root: &std::path::Path) -> Result<(),String> {
+    let (menu, handles)=tray_layout::build(app,"zh-CN",true,true,&[]).map_err(|e|e.to_string())?;
+    let items=menu.items().unwrap();
+    assert!(!items.iter().any(|i|i.id().as_ref()=="permissions_menu"),"Resolved permissions/activation should not clutter the menu");
+    assert!(menu.get("capture").is_none(),"Capture belongs in its submenu");
+    let capture=menu.get("capture_menu").unwrap();
+    assert!(capture.as_submenu().unwrap().get("capture").is_some());
+    assert!(!handles.pins_restore.is_enabled().unwrap(),"No saved pins to restore");
+    handles.sync_pins(&pins::list_pins(app.clone())).unwrap();
+    assert!(handles.pins_restore.is_enabled().unwrap());
+    assert!(handles.pins_hide.is_enabled().unwrap());
+    assert!(!handles.pins_unlock.is_enabled().unwrap());
+    let (pending,_)=tray_layout::build(app,"en",false,false,&[]).map_err(|e|e.to_string())?;
+    let access=pending.get("permissions_menu").unwrap();
+    assert!(access.as_submenu().unwrap().get("activate").is_some());
+    assert!(access.as_submenu().unwrap().get("accessibility").is_some());
+    std::fs::write(root.join("tray-menu.json"),serde_json::to_vec_pretty(&describe_items(menu.items().unwrap())).unwrap()).map_err(|e|e.to_string())
 }
 
 fn probe(
@@ -137,32 +212,47 @@ fn write_phase(
         .ok_or("No native pin window")?;
     wait_visible(&win);
     assert!(native_flags(app, &win).1);
+    verify_tray_menu(app, root)?;
     let initial = win.inner_size().unwrap();
-    action(app, panel, &win, "zoom", Some(0.8))?;
+    menu_action(app, &win, "zoom-50")?;
     assert!(win.inner_size().unwrap().height < initial.height);
-    action(app, panel, &win, "opacity", Some(0.45))?;
-    let report = probe(
-        &win,
-        receiver,
-        r#"
-        await waitFor(() => document.querySelector('.pin-image-area img')?.style.opacity === '0.45');
-        document.querySelector('[aria-pressed]').click();
-        await waitFor(() => document.querySelector('[aria-pressed]').getAttribute('aria-pressed') === 'true');
-        const target = document.querySelector('.pin-image-content');
-        const r = target.getBoundingClientRect();
+    menu_action(app, &win, "opacity-50")?;
+    let report = probe(&win,receiver,r#"
+        await waitFor(() => document.querySelector('.pin-image-area img')?.style.opacity === '0.5');
+        if (document.querySelector('button,input,.pin-controls')) throw Error('Image has persistent controls');
+        const image = document.querySelector('.pin-image-content').getBoundingClientRect();
+        if (Math.abs(image.width-innerWidth)>1 || Math.abs(image.height-innerHeight)>1) throw Error('Window has a footer or gutter');
+        document.querySelector('.pin-image-content').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:21,clientY:20,button:2}));
+        await waitFor(()=>document.querySelector('[role=status]')?.textContent==='已复制');
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{imageOnly:true,nativeMenuCopy:true}});
+    "#)?;
+    assert_eq!(report["imageOnly"],true);
+    for _ in 0..100 { if root.join("context-menu.json").exists(){break;} std::thread::sleep(Duration::from_millis(30)); }
+    let context:serde_json::Value=serde_json::from_slice(&std::fs::read(root.join("context-menu.json")).map_err(|e|e.to_string())?).unwrap();
+    assert_eq!(context["dismissed"],true,"Real native popup opened and dismissed");
+    assert!(win.is_visible().unwrap(),"Dismissing a menu must not hide its pin");
+    menu_action(app,&win,"number")?;
+    let report=probe(&win,receiver,r#"
+        await waitFor(() => document.querySelector('.pin-marking'));
+        const target=document.querySelector('.pin-image-content'), r=target.getBoundingClientRect();
         for (const y of [.25,.5,.75]) target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.4,clientY:r.top+r.height*y}));
         await waitFor(() => document.querySelectorAll('.pin-markers text').length === 3);
-        const nums = [...document.querySelectorAll('.pin-markers text')].map(n=>n.textContent);
-        [...document.querySelectorAll('button')].find(n=>n.textContent==='撤销').click();
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 2);
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{nums:[...document.querySelectorAll('.pin-markers text')].map(n=>n.textContent)}});
+    "#)?;
+    assert_eq!(report["nums"],serde_json::json!(["1","2","3"]));
+    menu_action(app,&win,"undo")?;
+    probe(&win,receiver,r#"
+        await waitFor(() => document.querySelectorAll('.pin-markers text').length===2);
+        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
         target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.4,clientY:r.top+r.height*.75}));
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 3);
-        [...document.querySelectorAll('button')].find(n=>n.textContent==='复制').click();
-        await waitFor(() => [...document.querySelectorAll('button')].some(n=>n.textContent==='已复制'));
-        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{nums}});
-    "#,
-    )?;
-    assert_eq!(report["nums"], serde_json::json!(["1", "2", "3"]));
+        await waitFor(() => document.querySelectorAll('.pin-markers text').length===3);
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
+    "#)?;
+    menu_action(app,&win,"copy")?;
+    probe(&win,receiver,r#"
+        await waitFor(()=>document.querySelector('[role=status]')?.textContent==='已复制');
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{copied:true}});
+    "#)?;
     action(app, panel, &win, "through", None)?;
     assert!(native_flags(app, &win).0);
     action(app, panel, &win, "hide", None)?;
@@ -302,28 +392,30 @@ fn reopen_phase(
     assert!(!native_flags(app, &win).0);
     action(app, panel, &win, "restore", None)?;
     assert!(win.is_visible().unwrap());
-    probe(
-        &win,
-        receiver,
-        r#"
-        document.querySelector('[aria-pressed]').click();
-        await waitFor(() => document.querySelector('[aria-pressed]').getAttribute('aria-pressed') === 'true');
-        const target = document.querySelector('.pin-image-content'), r = target.getBoundingClientRect();
+    menu_action(app,&win,"number")?;
+    probe(&win,receiver,r#"
+        await waitFor(()=>document.querySelector('.pin-marking'));
+        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
         target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.6,clientY:r.top+r.height*.5}));
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 4);
-        if ([...document.querySelectorAll('.pin-markers text')].at(-1).textContent !== '4') throw Error('Number did not continue');
-        [...document.querySelectorAll('button')].find(n=>n.textContent==='撤销').click();
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 3);
-        [...document.querySelectorAll('button')].find(n=>n.textContent==='清空').click();
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 0);
-        target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.6,clientY:r.top+r.height*.5}));
-        await waitFor(() => document.querySelectorAll('.pin-markers text').length === 1);
-        if (document.querySelector('.pin-markers text').textContent !== '1') throw Error('Clear did not reset numbering');
-        [...document.querySelectorAll('button')].find(n=>n.textContent==='复制').click();
-        await waitFor(() => [...document.querySelectorAll('button')].some(n=>n.textContent==='已复制'));
+        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===4);
+        if ([...document.querySelectorAll('.pin-markers text')].at(-1).textContent!=='4') throw Error('Number did not continue');
         await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
-    "#,
-    )?;
+    "#)?;
+    menu_action(app,&win,"undo")?;
+    menu_action(app,&win,"clear")?;
+    probe(&win,receiver,r#"
+        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===0);
+        const target=document.querySelector('.pin-image-content'),r=target.getBoundingClientRect();
+        target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:r.left+r.width*.6,clientY:r.top+r.height*.5}));
+        await waitFor(()=>document.querySelectorAll('.pin-markers text').length===1);
+        if(document.querySelector('.pin-markers text').textContent!=='1') throw Error('Clear did not reset numbering');
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
+    "#)?;
+    menu_action(app,&win,"copy")?;
+    probe(&win,receiver,r#"
+        await waitFor(()=>document.querySelector('[role=status]')?.textContent==='已复制');
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{ok:true}});
+    "#)?;
     let capture_pin = app.get_webview_window("pin-media-1").ok_or("Capture pin not restored")?;
     wait_visible(&capture_pin);
     let capture_state = ui_state(&capture_pin, receiver, 0)?;
@@ -408,6 +500,7 @@ fn main() {
             pins::pins_action,
             pins::list_pins,
             capture_copy,
+            capture_context_menu,
             get_settings,
             smoke_report
         ])

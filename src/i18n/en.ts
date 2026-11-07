@@ -9,7 +9,7 @@ export const en = {
 
   "pins.create": "Pin to desktop",
   "pins.manager": "Pins",
-  "pins.dragHint": "Drag to move · Scroll to zoom",
+  "pins.dragHint": "Drag to move · Scroll to zoom · Right-click for options",
   "pins.image": "Pinned image",
   "pins.imageError": "Unable to display this image",
   "pins.zoomOut": "Zoom out",

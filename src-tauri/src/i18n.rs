@@ -8,6 +8,23 @@ pub const EN: &str = "en";
 
 pub enum Key {
     Show,
+    CaptureGroup,
+    Capture,
+    Record,
+    Studio,
+    Pins,
+    Permissions,
+    PinCopy,
+    PinNumber,
+    PinUndo,
+    PinClear,
+    PinZoom,
+    PinZoomIn,
+    PinZoomOut,
+    PinOpacity,
+    PinThrough,
+    PinHide,
+    PinClose,
     PinsHide,
     PinsRestore,
     PinsUnlock,
@@ -28,14 +45,31 @@ pub fn normalize(locale: Option<&str>) -> &'static str {
 pub fn tr(locale: &str, key: Key) -> &'static str {
     let en = locale == EN;
     match key {
+        Key::CaptureGroup => if en { "Capture & Recording" } else { "截图与录屏" },
+        Key::Capture => if en { "Take Screenshot" } else { "截图" },
+        Key::Record => if en { "Start / Stop Recording" } else { "开始 / 停止录屏" },
+        Key::Studio => if en { "Open Capture Studio…" } else { "打开截图工作台…" },
+        Key::Pins => if en { "Desktop Pins" } else { "桌面贴图" },
+        Key::Permissions => if en { "Permissions & License" } else { "权限与授权" },
+        Key::PinCopy => if en { "Copy Image" } else { "复制图片" },
+        Key::PinNumber => if en { "Number Annotations" } else { "数字标注" },
+        Key::PinUndo => if en { "Undo Last Number" } else { "撤销上一个标注" },
+        Key::PinClear => if en { "Clear Annotations" } else { "清空标注" },
+        Key::PinZoom => if en { "Zoom" } else { "缩放" },
+        Key::PinZoomIn => if en { "Zoom In" } else { "放大" },
+        Key::PinZoomOut => if en { "Zoom Out" } else { "缩小" },
+        Key::PinOpacity => if en { "Opacity" } else { "透明度" },
+        Key::PinThrough => if en { "Click Through" } else { "鼠标穿透" },
+        Key::PinHide => if en { "Hide Image" } else { "隐藏贴图" },
+        Key::PinClose => if en { "Close Image" } else { "关闭贴图" },
         Key::PinsHide => if en { "Hide All Pins" } else { "隐藏全部贴图" },
         Key::PinsRestore => if en { "Restore All Pins" } else { "恢复全部贴图" },
         Key::PinsUnlock => if en { "Enable Pin Mouse Interaction" } else { "解除贴图鼠标穿透" },
         Key::Show => {
             if en {
-                "Show Panel"
+                "Open Clipboard"
             } else {
-                "打开面板"
+                "打开剪贴板"
             }
         }
         Key::Settings => {
@@ -61,9 +95,9 @@ pub fn tr(locale: &str, key: Key) -> &'static str {
         }
         Key::Quit => {
             if en {
-                "Quit"
+                "Quit PasteNext"
             } else {
-                "退出"
+                "退出 PasteNext"
             }
         }
     }
