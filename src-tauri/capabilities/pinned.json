@@ -2,7 +2,7 @@
   "identifier": "pinned",
   "description": "Pinned screenshot windows",
   "windows": [
-    "pin-*"
+    "capture-pin-*"
   ],
   "permissions": [
     "core:default",

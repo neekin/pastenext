@@ -986,7 +986,13 @@ pub async fn media_pin(app: AppHandle, id: String) -> Result<(), String> {
     if item.kind != "image" {
         return Err("仅图片支持贴图".into());
     }
-    let label = format!("pin-{}", item.id);
+    #[cfg(target_os = "macos")]
+    {
+        crate::pins::pin_media(app, item.id, item.path).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+    let label = format!("capture-pin-{}", item.id);
     if let Some(w) = app.get_webview_window(&label) {
         let _ = w.show();
         return Ok(());
@@ -1011,6 +1017,7 @@ pub async fn media_pin(app: AppHandle, id: String) -> Result<(), String> {
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())
+    }
 }
 #[tauri::command]
 pub async fn media_commit_image(

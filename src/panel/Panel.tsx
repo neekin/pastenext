@@ -3,6 +3,7 @@ import { api, onClipsUpdated, onPanelShown, onSettingsChanged, onPasteFailed } f
 import { useI18n } from "../i18n";
 import { mediaApi } from "../capture/api";
 import type { Board, Clip, ClipKind, SmartCollection } from "../types";
+import PinManager from "../pins/PinManager";
 import ClipStrip from "./ClipStrip";
 import { reconcileClips } from "./reconcileClips";
 import DetailDrawer from "./DetailDrawer";
@@ -525,6 +526,7 @@ export default function Panel() {
               </button>
             ))}
             <button onClick={() => mediaApi.show().catch(e => setPasteError(String(e)))} title={t("panel.capture")} className="px-3 h-9 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-xs">⌗ {t("panel.capture")}</button>
+            <PinManager />
             <button
               onClick={() => api.showSettings().catch(() => {})}
               title={t("panel.settingsTitle")}

@@ -8,6 +8,9 @@ pub const EN: &str = "en";
 
 pub enum Key {
     Show,
+    PinsHide,
+    PinsRestore,
+    PinsUnlock,
     Settings,
     Accessibility,
     Activate,
@@ -25,6 +28,9 @@ pub fn normalize(locale: Option<&str>) -> &'static str {
 pub fn tr(locale: &str, key: Key) -> &'static str {
     let en = locale == EN;
     match key {
+        Key::PinsHide => if en { "Hide All Pins" } else { "隐藏全部贴图" },
+        Key::PinsRestore => if en { "Restore All Pins" } else { "恢复全部贴图" },
+        Key::PinsUnlock => if en { "Enable Pin Mouse Interaction" } else { "解除贴图鼠标穿透" },
         Key::Show => {
             if en {
                 "Show Panel"

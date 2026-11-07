@@ -97,9 +97,10 @@ mod startup_tests {
 }
 
 /// MIGRATIONS[i] 表示从版本 i+1 升级到版本 i+2 的 SQL。
-/// MIGRATIONS[0] 是基线(0 → 1):当前 SCHEMA 就是版本 1,老库直接升版本号即可。
+/// SCHEMA 是最新结构；MIGRATIONS[0] 是旧库的版本 1 基线。
 /// MIGRATIONS[1] (1 → 2):新增来源 App 图标缓存 key 列(老行留 NULL,由历史回填异步补齐)。
 /// MIGRATIONS[2] (2 → 3):新增敏感标记列(默认非敏感;敏感内容预览打码,详见 sensitive.rs)。
+/// MIGRATIONS[3] (3 → 4):与现有 1.0.28 安装版本共用媒体资源表，保留已有数据。
 const MIGRATIONS: &[&str] = &[
     "",
     "ALTER TABLE clips ADD COLUMN source_app_key TEXT;",
@@ -139,7 +140,20 @@ fn run_migrations(conn: &rusqlite::Connection, db_path: &Path) -> Result<(), Str
             .copied()
             .ok_or_else(|| format!("缺少从版本 {v} 到 {} 的迁移脚本", v + 1))?;
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        if !sql.is_empty() {
+        // New databases already receive the latest SCHEMA. Also tolerate old,
+        // unversioned databases and databases left at v1 by the previous startup bug.
+        let added_column = match v {
+            1 => Some("source_app_key"),
+            2 => Some("sensitive"),
+            _ => None,
+        };
+        let already_present = if let Some(column) = added_column {
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('clips') WHERE name = ?1)",
+                [column], |row| row.get::<_, bool>(0),
+            ).map_err(|e| e.to_string())?
+        } else { false };
+        if !sql.is_empty() && !already_present {
             conn.execute_batch(sql)
                 .map_err(|e| format!("数据库迁移 {v} → {} 失败: {e}", v + 1))?;
         }
@@ -695,5 +709,46 @@ impl Db {
         )
         .map(|n| n as u32)
         .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn latest_schema_can_start_unversioned_or_partially_migrated() {
+        for version in [0, 1, 2, 3, 4] {
+            let conn = rusqlite::Connection::open_in_memory().unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.pragma_update(None, "user_version", version).unwrap();
+            run_migrations(&conn, Path::new(":memory:")).unwrap();
+            let actual: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+            assert_eq!(actual, SCHEMA_VERSION);
+        }
+    }
+
+    #[test]
+    fn installed_v4_database_keeps_its_version_and_media_assets() {
+        let db = Db::open(Path::new(":memory:")).unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.execute("INSERT INTO media_assets(id,metadata) VALUES ('asset-1','retained')", []).unwrap();
+        run_migrations(&conn, Path::new(":memory:")).unwrap();
+        let actual: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(actual, 4);
+        let metadata: String = conn.query_row("SELECT metadata FROM media_assets WHERE id='asset-1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(metadata, "retained");
+    }
+
+    #[test]
+    fn legacy_database_gains_columns_without_losing_rows() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE clips(id INTEGER PRIMARY KEY, text TEXT); INSERT INTO clips(text) VALUES ('keep me'); PRAGMA user_version=1;").unwrap();
+        run_migrations(&conn, Path::new(":memory:")).unwrap();
+        let row: (String, Option<String>, bool) = conn.query_row(
+            "SELECT text, source_app_key, sensitive FROM clips", [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(row, ("keep me".into(), None, false));
     }
 }

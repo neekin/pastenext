@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --experimental-strip-types scripts/test-license-phase.mjs && node --experimental-strip-types scripts/test-panel-clips.mjs && node --experimental-strip-types scripts/test-capture.mjs",
+    "test": "node --experimental-strip-types scripts/test-license-phase.mjs && node --experimental-strip-types scripts/test-panel-clips.mjs && node --experimental-strip-types scripts/test-capture.mjs && node --experimental-strip-types scripts/test-pin-annotations.mjs",
     "license:gen": "node scripts/gen-license.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "icon": "node scripts/gen-icon.mjs && tauri icon scripts/icon-source.png",
-    "app": "bash scripts/install-app.sh"
+    "app": "bash scripts/install-app.sh",
+    "keygen": "vite keygen-web --host 127.0.0.1 --port 4176",
+    "test:keygen": "node --test keygen-web/license.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

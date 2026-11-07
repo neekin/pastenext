@@ -14,6 +14,7 @@ mod capture;
 mod media_windows;
 mod stitch;
 mod transfer;
+mod pins;
 mod sensitive;
 mod tray;
 mod util;
@@ -366,6 +367,7 @@ pub fn run() {
             }
 
             app.manage(db);
+            app.manage(pins::Pins::open(&dir.join("desktop-pins.sqlite")).map_err(std::io::Error::other)?);
 
             app.manage(commands::TrayPrefs(Mutex::new(tray_left)));
 
@@ -462,6 +464,7 @@ pub fn run() {
                     }
                 });
             }
+            pins::restore_saved(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -489,6 +492,13 @@ pub fn run() {
             transfer::transfer_address,
             transfer::transfer_stop,
             transfer::transfer_status,
+            pins::pin_clip,
+            pins::pin_copy,
+            pins::pin_content,
+            pins::pin_action,
+            pins::pin_mark,
+            pins::pins_action,
+            pins::list_pins,
             commands::list_clips,
             commands::get_clip,
             commands::read_image_base64,
@@ -548,10 +558,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app,event| {
-            if matches!(event,tauri::RunEvent::Exit) {
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Err(e) = pins::flush(app) { eprintln!("[pins] Final save failed: {e}"); }
+            }
+            if matches!(event, tauri::RunEvent::Exit) {
                 transfer::transfer_stop(app.clone());
-                let _=capture::stop_capture(app.clone(),true);
+                let _ = capture::stop_capture(app.clone(), true);
             }
         });
 }

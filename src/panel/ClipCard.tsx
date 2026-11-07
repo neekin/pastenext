@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type DragEvent } from "react";
 import DOMPurify from "dompurify";
 import { api, getAppIconCached } from "../api";
+import { pins, supportsPins } from "../pins/api";
 import ClipImage from "./ClipImage";
 import { useI18n, type I18nKey } from "../i18n";
 import type { Board, Clip } from "../types";
@@ -71,6 +72,8 @@ interface Props {
 
 export default memo(function ClipCard({ clip, selected, pasting, focusSelection, queueIndex, boards, onClick, onDoubleClick, onDetail }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const [pinning, setPinning] = useState(false);
+  const [pinError, setPinError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const { t } = useI18n();
@@ -284,8 +287,26 @@ export default memo(function ClipCard({ clip, selected, pasting, focusSelection,
         </span>
       </div>
 
+      {pinError && <div role="alert" className="absolute inset-x-1 bottom-8 z-30 p-2 rounded-lg bg-red-50 text-red-700 text-xs" onClick={(e) => e.stopPropagation()}>
+        {t("pins.failed")}: {pinError}
+        <button className="ml-1 underline" onClick={() => setPinError("")}>{t("pins.close")}</button>
+      </div>}
       {/* 悬停操作 */}
-      <div className="absolute top-1.5 right-1.5 hidden group-hover:flex gap-1">
+      <div className="absolute bottom-9 right-2 flex gap-1">
+        {supportsPins && clip.kind === "image" && clip.imagePath && !clip.sensitive && (
+          <button disabled={pinning} aria-label={t("pins.create")} title={t("pins.create")}
+            className="px-1.5 h-6 rounded-md bg-white/90 dark:bg-neutral-700/90 shadow text-[11px] hover:bg-indigo-500 hover:text-white disabled:opacity-50"
+            onKeyDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (pinning) return;
+              setPinning(true); setPinError("");
+              void pins.create(clip.id).catch((err) => setPinError(String(err))).finally(() => setPinning(false));
+            }}>{t("pins.create")}</button>
+        )}
+      </div>
+      <div className="absolute top-1.5 right-1.5 hidden group-hover:flex group-focus-within:flex gap-1">
         <button
           onClick={(e) => {
             e.stopPropagation();

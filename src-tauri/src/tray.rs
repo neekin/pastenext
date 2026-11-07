@@ -90,6 +90,14 @@ pub fn build_tray_menu(
     }
     items.push(&quit);
 
+    #[cfg(target_os = "macos")]
+    let pin_items = [
+        MenuItem::with_id(app, "pins_hide", i18n::tr(&locale, Key::PinsHide), true, None::<&str>)?,
+        MenuItem::with_id(app, "pins_restore", i18n::tr(&locale, Key::PinsRestore), true, None::<&str>)?,
+        MenuItem::with_id(app, "pins_unlock", i18n::tr(&locale, Key::PinsUnlock), true, None::<&str>)?,
+    ];
+    #[cfg(target_os = "macos")]
+    for item in &pin_items { items.insert(items.len() - 1, item); }
     let menu = Menu::with_items(app, &items)?;
 
     let tray_items = TrayMenuItems {
@@ -155,6 +163,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon<Wry>> {
             "studio"=>{let _=crate::capture::show_capture_studio(app.clone());},
             "settings" | "activate" => open_settings(app),
             "accessibility" => crate::platform::open_accessibility_settings(),
+            "pins_hide" | "pins_restore" | "pins_unlock" => {
+                let action = event.id().as_ref().trim_start_matches("pins_");
+                if let Err(e) = crate::pins::all(app, action) { eprintln!("[pins] {e}"); }
+            }
             "quit" => app.exit(0),
             _ => {}
         })
