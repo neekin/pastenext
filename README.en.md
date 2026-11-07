@@ -6,6 +6,10 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
+## v1.0.29: Desktop pins and sticky notes
+
+macOS pins now support editing and replacing the original image, proportional corner resizing, continuous opacity controls, and adjacent layer ordering. Text history can be sent to system or built-in sticky notes; built-in notes save locally and return after restart. Windows system notes open with the text copied for pasting, with built-in notes as a fallback when unavailable. See the [v1.0.29 release notes](docs/releases/v1.0.29.md).
+
 ## Capture studio (v1.0.28)
 
 Screenshots, annotations, OCR, long-image stitching, pinned images, recording and local phone transfers now have native capture entry points on macOS and Windows. Switch region, window and display modes directly in the capture toolbar or with **1 / 2 / 3**, with a 60% outside dim mask.
@@ -92,7 +96,7 @@ Pushing a `v*` tag triggers GitHub Actions (`.github/workflows/build.yml`) to bu
 
 Download them from the Artifacts section of the corresponding run (PasteNext-macos-*/PasteNext-windows-*).
 
-Keep the package, Tauri and Cargo versions in sync and run `python3 scripts/check-release-version.py v1.0.28` before tagging. Release builds require the repository's `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`. macOS also requires encrypted `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` secrets to reuse the persistent identity. The workflow verifies signatures inside each DMG and publishes `SHA256SUMS`.
+Keep the package, Tauri and Cargo versions in sync and run `python3 scripts/check-release-version.py v1.0.29` before tagging. Release builds require the repository's `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`. macOS also requires encrypted `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` secrets to reuse the persistent identity. The workflow verifies signatures inside each DMG and publishes `SHA256SUMS`.
 
 ## Roadmap
 
