@@ -5,6 +5,10 @@ use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, AppHandle, Wry}
 #[derive(Clone)]
 pub struct TrayMenuItems {
     #[cfg(target_os = "macos")]
+    pub pins_menu: Submenu<Wry>,
+    #[cfg(target_os = "macos")]
+    locale: String,
+    #[cfg(target_os = "macos")]
     pub pins_hide: MenuItem<Wry>,
     #[cfg(target_os = "macos")]
     pub pins_restore: MenuItem<Wry>,
@@ -15,6 +19,11 @@ impl TrayMenuItems {
     pub fn sync_pins(&self, pins: &[PinInfo]) -> tauri::Result<()> {
         #[cfg(target_os = "macos")]
         {
+            let hidden = pins.iter().filter(|p| p.hidden).count();
+            let title = if hidden > 0 {
+                format!("{} · {}", i18n::tr(&self.locale, Key::Pins), i18n::tr(&self.locale, Key::PinsHiddenCount).replace("{n}", &hidden.to_string()))
+            } else { i18n::tr(&self.locale, Key::Pins).to_string() };
+            if self.pins_menu.text()? != title { self.pins_menu.set_text(title)?; }
             self.pins_hide.set_enabled(pins.iter().any(|p| !p.hidden))?;
             self.pins_restore.set_enabled(!pins.is_empty())?;
             self.pins_unlock.set_enabled(pins.iter().any(|p| p.click_through))?;
@@ -47,7 +56,7 @@ pub fn build(
             &pins_restore, &pins_hide, &PredefinedMenuItem::separator(app)?, &pins_unlock,
         ])?;
         menu.append(&submenu)?;
-        TrayMenuItems { pins_hide, pins_restore, pins_unlock }
+        TrayMenuItems { pins_menu: submenu, locale: locale.to_string(), pins_hide, pins_restore, pins_unlock }
     };
     #[cfg(not(target_os = "macos"))]
     let handles = TrayMenuItems {};

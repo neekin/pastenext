@@ -125,6 +125,11 @@ fn image_dimensions(bytes: &[u8]) -> Result<(u32, u32), String> {
 
 fn changed(app: &AppHandle, pin: &PinInfo) {
     let _ = app.emit_to(&pin.label, "pin-changed", pin);
+    notify_pins_changed(app);
+}
+fn notify_pins_changed(app: &AppHandle) {
+    // Update before AppKit enters its menu tracking loop, including the first click.
+    crate::tray::sync_pin_menu(app);
     let _ = app.emit_to("panel", "pins-changed", ());
 }
 fn report_save_error(app: &AppHandle, label: &str, error: &str) {
@@ -622,7 +627,7 @@ fn update(app: &AppHandle, label: &str, action: &str, value: Option<f64>) -> Res
                 return Err(e.to_string());
             }
             app.state::<Pins>().0.lock().unwrap().remove(label);
-            let _ = app.emit_to("panel", "pins-changed", ());
+            notify_pins_changed(app);
             return Ok(());
         }
         _ => return Err("Unknown pin action".into()),
@@ -701,7 +706,7 @@ pub async fn pin_context_menu(
 }
 
 pub fn all(app: &AppHandle, action: &str) -> Result<(), String> {
-    if !matches!(action, "hide" | "restore" | "unlock") {
+    if !matches!(action, "hide" | "restore" | "restore-hidden" | "unlock") {
         return Err("Unknown group action".into());
     }
     let labels: Vec<_> = app
@@ -709,9 +714,11 @@ pub fn all(app: &AppHandle, action: &str) -> Result<(), String> {
         .0
         .lock()
         .unwrap()
-        .keys()
-        .cloned()
+        .iter()
+        .filter(|(_, pin)| action != "restore-hidden" || pin.info.hidden)
+        .map(|(label, _)| label.clone())
         .collect();
+    let action = if action == "restore-hidden" { "restore" } else { action };
     let mut errors = Vec::new();
     for label in labels {
         if let Err(e) = update(app, &label, action, None) {

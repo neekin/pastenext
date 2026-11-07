@@ -32,5 +32,5 @@ export const pins = {
   list: () => invoke<PinInfo[]>("list_pins"),
   action: (label: string, action: PinAction, value?: number) =>
     invoke<void>("pin_action", { label, action, value: value ?? null }),
-  all: (action: "hide" | "restore" | "unlock") => invoke<void>("pins_action", { action }),
+  all: (action: "hide" | "restore" | "restore-hidden" | "unlock") => invoke<void>("pins_action", { action }),
 };

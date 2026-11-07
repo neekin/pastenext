@@ -11,6 +11,9 @@ use tauri::WebviewWindow;
 
 struct Reports(Mutex<mpsc::Sender<serde_json::Value>>);
 struct Output(std::path::PathBuf);
+struct SmokeTrayMenu(tauri::menu::Menu<tauri::Wry>);
+#[tauri::command(rename = "set_panel_height")]
+fn keep_panel_size() {}
 #[tauri::command]
 fn smoke_report(app: tauri::AppHandle, report: serde_json::Value) {
     app.state::<Reports>()
@@ -103,6 +106,30 @@ fn verify_tray_menu(app: &tauri::AppHandle, root: &std::path::Path) -> Result<()
     assert!(access.as_submenu().unwrap().get("activate").is_some());
     assert!(access.as_submenu().unwrap().get("accessibility").is_some());
     std::fs::write(root.join("tray-menu.json"),serde_json::to_vec_pretty(&describe_items(menu.items().unwrap())).unwrap()).map_err(|e|e.to_string())
+}
+
+fn assert_live_tray(app: &tauri::AppHandle, count: usize, hidden: usize) {
+    let handles = app.state::<tray::TrayMenus>().0.lock().unwrap().clone().unwrap();
+    // Never manually sync here: changes must update the menu before any tray click.
+    assert_eq!(handles.pins_restore.is_enabled().unwrap(), count > 0);
+    assert_eq!(handles.pins_hide.is_enabled().unwrap(), count > hidden);
+    assert_eq!(handles.pins_menu.text().unwrap(), if hidden > 0 {
+        format!("桌面贴图 · {hidden} 张已隐藏")
+    } else { "桌面贴图".into() });
+}
+fn verify_panel_recovery(app:&tauri::AppHandle,panel:&WebviewWindow,win:&WebviewWindow,receiver:&mpsc::Receiver<serde_json::Value>)->Result<(),String>{
+    let mut url=win.url().map_err(|e|e.to_string())?;url.set_query(None);
+    panel.navigate(url).map_err(|e|e.to_string())?;
+    probe(panel,receiver,r#"
+        await waitFor(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='恢复贴图（1）'));
+        [...document.querySelectorAll('button')].find(b=>b.textContent==='恢复贴图（1）').click();
+        await waitFor(()=>![...document.querySelectorAll('button')].some(b=>b.textContent==='恢复贴图（1）'));
+        await window.__TAURI_INTERNALS__.invoke('smoke_report',{report:{panelRestoredHidden:true}});
+    "#)?;
+    wait_visible(win);
+    assert_eq!(pins::list_pins(app.clone()).len(),1,"Hiding and restoring must reuse the original pin");
+    assert_live_tray(app,1,0);
+    Ok(())
 }
 
 fn probe(
@@ -365,6 +392,7 @@ fn write_phase(
         .get_webview_window("pin-1")
         .ok_or("No native pin window")?;
     wait_visible(&win);
+    assert_live_tray(app,1,0);
     assert!(native_flags(app, &win).1);
     verify_tray_menu(app, root)?;
     verify_notes(app,panel,receiver,false)?;
@@ -400,7 +428,8 @@ fn write_phase(
     assert!(native_flags(app, &win).0);
     action(app, panel, &win, "hide", None)?;
     assert!(!win.is_visible().unwrap());
-    action(app, panel, &win, "restore", None)?;
+    assert_live_tray(app,1,1);
+    verify_panel_recovery(app,panel,&win,receiver)?;
     assert!(win.is_visible().unwrap());
     assert!(!native_flags(app, &win).0);
     tauri::async_runtime::block_on(pins::pin_clip(app.clone(), panel.clone(), 1))?;
@@ -416,6 +445,12 @@ fn write_phase(
     wait_visible(&second);
     action(app, panel, &second, "opacity", Some(0.7))?;
     action(app, panel, &second, "zoom", Some(0.9))?;
+    action(app, panel, &second, "through", None)?;
+    action(app, panel, &win, "hide", None)?;
+    tauri::async_runtime::block_on(pins::pins_action(app.clone(),panel.clone(),"restore-hidden".into()))?;
+    assert!(win.is_visible().unwrap());
+    assert!(native_flags(app,&second).0,"Restoring hidden pins preserves visible pins' click-through setting");
+    action(app, panel, &second, "unlock", None)?;
     let second_pos = second.outer_position().unwrap();
     let second_size = second.inner_size().unwrap();
     let annotated = ui_state(&win, receiver, 3)?;
@@ -549,6 +584,7 @@ fn reopen_phase(
     action(app, panel, &win, "close", None)?;
     action(app, panel, &second, "close", None)?;
     assert!(pins::list_pins(app.clone()).is_empty());
+    assert_live_tray(app,0,0);
     println!("PASS: restart restores pins, warm studio editing works without source history, and closing removes saved pins");
     Ok(())
 }
@@ -583,6 +619,7 @@ fn main() {
     db.ensure_defaults();
     db.set_setting("locale", "zh-CN");
     db.set_setting("notes_provider", "builtin");
+    db.set_setting(license::K_LAST_PROMPT, &license::now_ms().to_string());
     db.set_setting("capture_preferences", "{\"editAfter\":false}");
     if phase == "write" {
         let fixture = root.join("source.png");
@@ -652,6 +689,12 @@ fn main() {
             capture_copy,
             capture_context_menu,
             commands::get_settings,
+            commands::list_clips,
+            commands::get_boards,
+            commands::get_source_apps,
+            commands::get_license_info,
+            commands::get_accessibility_trusted,
+            keep_panel_size,
             smoke_report
         ])
         .setup(move |app| {
@@ -664,6 +707,9 @@ fn main() {
             .build()?;
             tauri::WebviewWindowBuilder::new(app, "studio", tauri::WebviewUrl::External("about:blank".parse().unwrap()))
                 .inner_size(1100.0, 760.0).visible(false).build()?;
+            let (menu,handles)=tray::build_tray_menu(app.handle())?;
+            app.manage(SmokeTrayMenu(menu));
+            app.manage(tray::TrayMenus(Mutex::new(Some(handles))));
             pins::restore_saved(app.handle());
             notes::restore_saved(app.handle());
             let handle = app.handle().clone();

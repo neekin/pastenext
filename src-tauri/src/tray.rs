@@ -49,7 +49,7 @@ fn saved_pins(app: &AppHandle) -> Vec<crate::pins::PinInfo> {
     app.try_state::<crate::pins::Pins>().map(|_| crate::pins::list_pins(app.clone())).unwrap_or_default()
 }
 
-fn sync_pin_menu(app: &AppHandle) {
+pub(crate) fn sync_pin_menu(app: &AppHandle) {
     let handles = app.try_state::<TrayMenus>()
         .and_then(|state| state.0.lock().ok().and_then(|items| items.clone()));
     if let Some(handles) = handles {
