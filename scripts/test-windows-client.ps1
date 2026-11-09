@@ -1,6 +1,13 @@
 $ErrorActionPreference='Stop'
-& cargo run --manifest-path src-tauri/Cargo.toml --example pins_windows_smoke --features tauri/custom-protocol
-if($LASTEXITCODE -ne 0){throw 'Native Windows pin hide, recovery and restart checks failed'}
+$pinSmokeStaticRuntime=$env:STATIC_VCRUNTIME
+try {
+ # Match the runtime linkage configured by the Tauri packaging CLI.
+ $env:STATIC_VCRUNTIME='true'
+ & cargo run --manifest-path src-tauri/Cargo.toml --example pins_windows_smoke --features tauri/custom-protocol
+ if($LASTEXITCODE -ne 0){throw 'Native Windows pin hide, recovery and restart checks failed'}
+} finally {
+ $env:STATIC_VCRUNTIME=$pinSmokeStaticRuntime
+}
 $target=Join-Path $env:RUNNER_TEMP 'pastenext-preview-installed'
 $report=Join-Path $env:RUNNER_TEMP 'pastenext-native-report'
 New-Item -ItemType Directory -Force -Path $report | Out-Null

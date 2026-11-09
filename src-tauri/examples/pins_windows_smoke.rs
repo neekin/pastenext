@@ -63,6 +63,7 @@ mod windows_smoke {
             let saved = pins::list_pins(app.clone());
             assert_eq!(saved.len(), 3);
             assert!(saved.iter().all(|pin| pin.hidden && !pin.click_through));
+            assert_eq!(saved.iter().find(|pin| pin.label == "pin-1").unwrap().zoom, 0.5);
             group(app, panel, "restore")?;
             for pin in saved {
                 wait(|| visible(app, &pin.label))?;
