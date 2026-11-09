@@ -6,6 +6,10 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
+## v1.0.31: Windows history wheel scrolling
+
+Fixed mouse-wheel scrolling in the clipboard history. Scroll down over the history cards to browse later items and up to return. Native horizontal trackpad gestures and Shift scrolling are preserved. See the [v1.0.31 release notes](docs/releases/v1.0.31.md).
+
 ## v1.0.30: Recover hidden pins
 
 On macOS, the clipboard panel now shows a Restore pins button whenever images are hidden. The tray menu updates immediately and displays the hidden count. Recovery preserves click-through settings on other visible pins. See the [v1.0.30 release notes](docs/releases/v1.0.30.md).

@@ -6,6 +6,10 @@
 
 > 剪贴板数据只存储在本机 SQLite 数据库中,不上传任何服务器。macOS 上为菜单栏应用(不占 Dock 图标)。
 
+## v1.0.31：Windows 历史记录滚轮修复
+
+修复普通鼠标滚轮无法滚动历史记录的问题：在历史卡片区域向下滚动可查看后面的记录，向上滚动可返回。保留触控板横向滚动和 Shift 滚轮操作。详见 [v1.0.31 更新说明](docs/releases/v1.0.31.md)。
+
 ## v1.0.30：隐藏贴图恢复
 
 macOS 有隐藏贴图时，剪贴板面板顶部直接显示「恢复贴图（数量）」；托盘菜单立即更新并显示隐藏数量。一键恢复只处理隐藏的图片，保留其他贴图的鼠标穿透设置。详见 [v1.0.30 更新说明](docs/releases/v1.0.30.md)。
@@ -106,7 +110,7 @@ src-tauri/src/
 
 在 Actions 页面对应 run 的 Artifacts 里下载(PasteNext-macos-*/PasteNext-windows-*)。
 
-发布前同步更新 `package.json`、Tauri 配置、Cargo 包与锁文件版本，并运行 `python3 scripts/check-release-version.py v1.0.30`。正式构建使用仓库的 `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`；macOS 另需 `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` 加密 Secrets，以复用固定签名。发布流程会校验 DMG 内的签名并提供 `SHA256SUMS`。
+发布前同步更新 `package.json`、Tauri 配置、Cargo 包与锁文件版本，并运行 `python3 scripts/check-release-version.py v1.0.31`。正式构建使用仓库的 `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`；macOS 另需 `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` 加密 Secrets，以复用固定签名。发布流程会校验 DMG 内的签名并提供 `SHA256SUMS`。
 
 ## Roadmap
 

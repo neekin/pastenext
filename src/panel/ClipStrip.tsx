@@ -34,13 +34,25 @@ export default memo(function ClipStrip({ clips, selected, scrollSelection, focus
       prev.left === el.scrollLeft && prev.width === el.clientWidth
         ? prev : { left: el.scrollLeft, width: el.clientWidth }
     );
+    const onWheel = (event: WheelEvent) => {
+      // 普通鼠标只产生纵向滚轮输入；横向手势与 Shift 滚动仍由浏览器处理。
+      if (event.defaultPrevented || event.ctrlKey || event.shiftKey
+        || Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+        || el.scrollWidth <= el.clientWidth) return;
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? el.clientWidth : 1;
+      event.preventDefault();
+      el.scrollLeft += event.deltaY * unit;
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     el.addEventListener("scroll", measure, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: false });
     measure();
     return () => {
       observer.disconnect();
       el.removeEventListener("scroll", measure);
+      el.removeEventListener("wheel", onWheel);
     };
   }, []);
 
