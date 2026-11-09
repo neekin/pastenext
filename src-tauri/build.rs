@@ -48,7 +48,17 @@ fn main() {
     #[cfg(target_os = "windows")]
     build_windows_selector();
 
-    tauri_build::build()
+    tauri_build::build();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // Tauri links the Common Controls v6 manifest only into application
+        // binaries. GUI examples need it too, or TaskDialogIndirect cannot be
+        // resolved from the default Common Controls DLL before main starts.
+        let resource = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
+            .join("resource.lib");
+        println!("cargo:rustc-link-arg-examples={}", resource.display());
+    }
 }
 
 #[cfg(target_os = "macos")]
