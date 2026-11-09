@@ -47,6 +47,17 @@ async fn capture_context_menu(app: tauri::AppHandle, window: WebviewWindow, x: f
     let path = app.state::<Output>().0.join("context-menu.json");
     let select_copy = x == 21.0;
     #[cfg(target_os = "macos")]
+    pins::on_main(app.clone(), |_| {
+        // An unbundled test process may have a key window without being the
+        // active app. Its own native menu must receive the test's keyboard events.
+        unsafe {
+            use objc2::{class, msg_send, runtime::AnyObject};
+            let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![application, activateIgnoringOtherApps: true];
+        }
+        Ok(())
+    }).await?;
+    #[cfg(target_os = "macos")]
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
         unsafe {
