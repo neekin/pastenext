@@ -2,6 +2,7 @@
 //! Save the top-left anchor in that space; it remains stable during resizing and
 //! across mixed-DPI displays. Tao's asynchronous frame setters cannot be followed
 //! immediately by a reliable frame read, so pin geometry is applied synchronously.
+//! Windows stores the top-left anchor in physical desktop pixels.
 use super::{fit_zoom, size_for, PinPosition};
 use tauri::WebviewWindow;
 
@@ -118,11 +119,69 @@ fn clamp_anchor(anchor: PinPosition, size: (f64, f64), area: (f64, f64, f64, f64
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(super) fn position(_win: &WebviewWindow) -> Result<PinPosition, String> {
-    Err("Desktop pins require macOS".into())
+#[cfg(target_os = "windows")]
+pub(super) fn position(win: &WebviewWindow) -> Result<PinPosition, String> {
+    use windows::Win32::{Foundation::RECT, UI::WindowsAndMessaging::GetWindowRect};
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(win.hwnd().map_err(|e| e.to_string())?, &mut rect) }
+        .map_err(|e| e.to_string())?;
+    Ok(PinPosition { x: rect.left as f64, y: rect.top as f64 })
 }
-#[cfg(not(target_os = "macos"))]
+
+#[cfg(target_os = "windows")]
+pub(super) fn apply(
+    win: &WebviewWindow,
+    width: f64,
+    height: f64,
+    requested: f64,
+    saved: Option<PinPosition>,
+) -> Result<(f64, PinPosition), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
+    };
+    let cursor = win.cursor_position().map_err(|e| e.to_string())?;
+    let anchor = saved.unwrap_or(PinPosition { x: cursor.x, y: cursor.y });
+    let monitor = win.monitor_from_point(anchor.x, anchor.y).map_err(|e| e.to_string())?
+        .or(win.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("No display available")?;
+    let area = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let zoom = fit_zoom(width, height, requested,
+        (area.size.width as f64 / scale, area.size.height as f64 / scale));
+    let size = size_for(width, height, zoom);
+    let physical = ((size.width * scale).round().max(1.0), (size.height * scale).round().max(1.0));
+    let bounds = (area.position.x as f64, area.position.y as f64,
+        area.size.width as f64, area.size.height as f64);
+    let pos = windows_anchor(saved, physical, bounds);
+    // SetWindowPos is synchronous: immediate hide/restore/resize and persisted
+    // coordinates must describe the same native window, including at mixed DPI.
+    unsafe {
+        SetWindowPos(win.hwnd().map_err(|e| e.to_string())?, None,
+            pos.x.round() as i32, pos.y.round() as i32,
+            physical.0 as i32, physical.1 as i32,
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER)
+    }.map_err(|e| e.to_string())?;
+    Ok((zoom, position(win)?))
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_anchor(saved: Option<PinPosition>, size: (f64, f64), area: (f64, f64, f64, f64)) -> PinPosition {
+    let (x, y, width, height) = area;
+    let anchor = saved.unwrap_or(PinPosition {
+        x: x + (width - size.0) / 2.0,
+        y: y + (height - size.1) / 2.0,
+    });
+    PinPosition {
+        x: anchor.x.clamp(x, (x + width - size.0).max(x)),
+        y: anchor.y.clamp(y, (y + height - size.1).max(y)),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(super) fn position(_win: &WebviewWindow) -> Result<PinPosition, String> {
+    Err("Desktop pins require macOS or Windows".into())
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(super) fn apply(
     _win: &WebviewWindow,
     _width: f64,
@@ -130,12 +189,22 @@ pub(super) fn apply(
     _zoom: f64,
     _position: Option<PinPosition>,
 ) -> Result<(f64, PinPosition), String> {
-    Err("Desktop pins require macOS".into())
+    Err("Desktop pins require macOS or Windows".into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn windows_pins_center_and_recover_inside_the_physical_work_area() {
+        let area = (-1920.0, 40.0, 1920.0, 1040.0);
+        assert_eq!(windows_anchor(None, (800.0, 600.0), area), PinPosition { x: -1360.0, y: 260.0 });
+        let saved = PinPosition { x: -1500.0, y: 100.0 };
+        assert_eq!(windows_anchor(Some(saved), (800.0, 600.0), area), saved);
+        assert_eq!(windows_anchor(Some(PinPosition { x: 2000.0, y: -100.0 }), (800.0, 600.0), area),
+            PinPosition { x: -800.0, y: 40.0 });
+        assert_eq!(windows_anchor(None, (2560.0, 1440.0), area), PinPosition { x: -1920.0, y: 40.0 });
+    }
     #[test]
     fn saved_anchor_is_unchanged_on_its_original_display() {
         let areas = [(0.0, 0.0, 1440.0, 900.0), (-1920.0, 0.0, 1920.0, 1080.0)];

@@ -2,7 +2,7 @@ import type { MediaAsset } from "../capture/api";
 import type { NumberMark } from "./annotations";
 import { invoke } from "@tauri-apps/api/core";
 
-export const supportsPins = /Mac/.test(navigator.platform);
+export const supportsPins = /Mac|Win/.test(navigator.platform);
 export interface PinInfo {
   label: string;
   clipId: number;

@@ -1,4 +1,6 @@
 $ErrorActionPreference='Stop'
+& cargo run --manifest-path src-tauri/Cargo.toml --example pins_windows_smoke --features tauri/custom-protocol
+if($LASTEXITCODE -ne 0){throw 'Native Windows pin hide, recovery and restart checks failed'}
 $target=Join-Path $env:RUNNER_TEMP 'pastenext-preview-installed'
 $report=Join-Path $env:RUNNER_TEMP 'pastenext-native-report'
 New-Item -ItemType Directory -Force -Path $report | Out-Null

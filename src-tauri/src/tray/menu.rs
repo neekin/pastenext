@@ -4,20 +4,20 @@ use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, AppHandle, Wry}
 
 #[derive(Clone)]
 pub struct TrayMenuItems {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub pins_menu: Submenu<Wry>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     locale: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub pins_hide: MenuItem<Wry>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub pins_restore: MenuItem<Wry>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub pins_unlock: MenuItem<Wry>,
 }
 impl TrayMenuItems {
     pub fn sync_pins(&self, pins: &[PinInfo]) -> tauri::Result<()> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             let hidden = pins.iter().filter(|p| p.hidden).count();
             let title = if hidden > 0 {
@@ -28,7 +28,7 @@ impl TrayMenuItems {
             self.pins_restore.set_enabled(!pins.is_empty())?;
             self.pins_unlock.set_enabled(pins.iter().any(|p| p.click_through))?;
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let _ = pins;
         Ok(())
     }
@@ -47,7 +47,7 @@ pub fn build(
     ])?;
     let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &capture])?;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let handles = {
         let pins_hide = item("pins_hide", Key::PinsHide)?;
         let pins_restore = item("pins_restore", Key::PinsRestore)?;
@@ -58,7 +58,7 @@ pub fn build(
         menu.append(&submenu)?;
         TrayMenuItems { pins_menu: submenu, locale: locale.to_string(), pins_hide, pins_restore, pins_unlock }
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let handles = TrayMenuItems {};
     handles.sync_pins(pins)?;
     menu.append(&Submenu::with_id_and_items(app,"notes_menu",i18n::tr(locale,Key::Notes),true,&[

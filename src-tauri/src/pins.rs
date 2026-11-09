@@ -1,4 +1,4 @@
-//! Persistent desktop image pins. Window mutations run on the AppKit thread.
+//! Persistent desktop image pins. Window mutations run on the main thread.
 //! Images and state live in a dedicated SQLite store, independently of history.
 #[path = "pins/geometry.rs"]
 mod geometry;
@@ -304,7 +304,7 @@ fn open_window(app: &AppHandle, label: &str) -> Result<(), String> {
 }
 
 pub fn restore_saved(app: &AppHandle) {
-    if !cfg!(target_os = "macos") {
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
         return;
     }
     let labels: Vec<_> = app
@@ -341,7 +341,7 @@ pub fn flush(app: &AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn pin_clip(app: AppHandle, window: WebviewWindow, id: i64) -> Result<(), String> {
-    if !cfg!(target_os = "macos") {
+    if !cfg!(any(target_os = "macos", target_os = "windows")) {
         if window.label() != "panel" { return Err("Open pins from clipboard history".into()); }
         let clip = app.state::<crate::db::Db>().get_clip(id).ok_or("Image no longer exists")?;
         if clip.kind != crate::model::ClipKind::Image || clip.sensitive { return Err("Choose a non-sensitive image".into()); }
