@@ -4,6 +4,7 @@ param(
  [string]$ReportDirectory=(Join-Path $env:RUNNER_TEMP 'pastenext-native-report')
 )
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
 Add-Type @'
 using System;
@@ -34,12 +35,14 @@ $root=Join-Path $env:RUNNER_TEMP ('pastenext-portable-startup-'+[guid]::NewGuid(
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $archives=@{}
 foreach($tag in @($BaselineTag,$ReleaseTag)) {
+ Write-Host "Downloading portable $tag"
  $archive=Join-Path $root "$tag.zip"
- Invoke-WebRequest "https://github.com/neekin/pastenext/releases/download/$tag/PasteNext-Windows-x64-portable.zip" -OutFile $archive
+ Invoke-WebRequest "https://github.com/neekin/pastenext/releases/download/$tag/PasteNext-Windows-x64-portable.zip" -OutFile $archive -TimeoutSec 120
  $archives[$tag]=$archive
 }
 $reports=@()
 function Probe([string]$directory,[string]$name) {
+ Write-Host "Probing $name"
  $executable=Join-Path $directory 'PasteNext.exe'
  $stdout=Join-Path $ReportDirectory "$name-stdout.log"
  $stderr=Join-Path $ReportDirectory "$name-stderr.log"
