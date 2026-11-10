@@ -1,7 +1,7 @@
 {
   "name": "paste-next",
   "private": true,
-  "version": "1.0.32",
+  "version": "1.0.33",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "test": "node --experimental-strip-types scripts/test-license-phase.mjs && node --experimental-strip-types scripts/test-panel-clips.mjs && node --experimental-strip-types scripts/test-capture.mjs && node --experimental-strip-types scripts/test-pin-annotations.mjs",
     "license:gen": "node scripts/gen-license.mjs",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node scripts/tauri-build.mjs",
     "icon": "node scripts/gen-icon.mjs && tauri icon scripts/icon-source.png",
     "app": "bash scripts/install-app.sh",
     "keygen": "vite keygen-web --host 127.0.0.1 --port 4176",

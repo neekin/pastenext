@@ -6,6 +6,10 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
+## v1.0.33: Windows startup fix
+
+Fixed the v1.0.32 startup crash caused by a pin-list request arriving before backend initialization. Portable upgrades keep the existing Data directory. Release builds now launch the actual packaged Windows executable and portable directory before uploading artifacts. See the [v1.0.33 release notes](docs/releases/v1.0.33.md).
+
 ## v1.0.32: Hide and restore Windows pins
 
 Windows image pins now offer Hide in the context menu, a Restore pins button in the clipboard panel, and Desktop pins management in the tray. Clipboard and Capture Studio pins share persistent state and can be recovered after restarting. See the [v1.0.32 release notes](docs/releases/v1.0.32.md).

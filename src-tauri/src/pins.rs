@@ -520,13 +520,12 @@ pub fn pin_content(app: AppHandle, window: WebviewWindow) -> Result<PinContent, 
 }
 #[tauri::command]
 pub fn list_pins(app: AppHandle) -> Vec<PinInfo> {
-    app.state::<Pins>()
-        .0
-        .lock()
-        .unwrap()
-        .values()
-        .map(|p| p.info.clone())
-        .collect()
+    // WebView2 can invoke this while initial windows are being constructed,
+    // before setup registers the persistent store. Startup reads are empty
+    // until then; later focus and pins-changed events refresh the panel.
+    let Some(state) = app.try_state::<Pins>() else { return Vec::new(); };
+    let pins = state.0.lock().unwrap();
+    pins.values().map(|p| p.info.clone()).collect()
 }
 fn replace_image(app: &AppHandle, label: &str, bytes: Vec<u8>, width: u32, height: u32) -> Result<(), String> {
     let mut pin = app.state::<Pins>().0.lock().unwrap().get(label).cloned().ok_or("Pin no longer exists")?;

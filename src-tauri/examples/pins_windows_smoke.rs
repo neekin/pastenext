@@ -164,15 +164,17 @@ mod windows_smoke {
         let mut context = tauri::generate_context!();
         context.config_mut().app.windows.clear();
         context.config_mut().identifier = format!("io.pastenext.windows-pins-{}", root.file_name().unwrap().to_string_lossy());
-        tauri::Builder::default().manage(db).manage(state).manage(Reports(Mutex::new(sender)))
+        tauri::Builder::default().manage(db).manage(Reports(Mutex::new(sender)))
             .invoke_handler(tauri::generate_handler![
                 pins::pin_content, pins::pin_action, pins::list_pins, pins::pins_action,
                 commands::get_settings, commands::list_clips, commands::get_boards, commands::get_source_apps,
                 commands::get_license_info, commands::get_accessibility_trusted, keep_panel_size, smoke_report
             ])
             .setup(move |app| {
+                assert!(pins::list_pins(app.handle().clone()).is_empty(), "Early startup reads must not panic before Pins is managed");
                 let panel = tauri::WebviewWindowBuilder::new(app, "panel", tauri::WebviewUrl::App("index.html".into()))
                     .visible(false).build()?;
+                app.manage(state);
                 let (menu, items) = tray::build_tray_menu(app.handle())?;
                 app.manage(HeldMenu(menu)); app.manage(tray::TrayMenus(Mutex::new(Some(items))));
                 pins::restore_saved(app.handle());
