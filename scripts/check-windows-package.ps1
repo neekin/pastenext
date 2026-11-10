@@ -15,9 +15,11 @@ if(-not $main){throw 'Installed application executable is missing'}
 if(-not(Test-Path "$installed/capture_selector.exe") -or -not(Test-Path "$installed/ffmpeg/ffmpeg.exe")){throw 'Packaged native resources are missing'}
 # Silent installers may launch a copy. Only terminate this isolated installation.
 Get-Process | Where-Object {try {$_.Path -eq $main.FullName} catch {$false}} | Stop-Process -Force -ErrorAction SilentlyContinue
-$hash=(Get-FileHash $main.FullName).Hash
-$original=Get-ChildItem "$BinaryDirectory/*.exe" | Where-Object {(Get-FileHash $_.FullName).Hash -eq $hash} | Select-Object -First 1
-if(-not $original){throw 'Installer executable does not match the compiled shipping binary'}
+# Tauri patches bundle-type metadata while packaging. The installed executable
+# and the standalone portable executable can legitimately have different hashes;
+# launch each actual artifact rather than treating that metadata as a mismatch.
+$original=Get-Item (Join-Path $BinaryDirectory $main.Name)
+if($original.VersionInfo.ProductVersion -ne $main.VersionInfo.ProductVersion){throw 'Installed and portable versions do not match'}
 New-Item -ItemType Directory -Force -Path $portable | Out-Null
 Copy-Item $original.FullName "$portable/PasteNext.exe"
 Get-ChildItem "$BinaryDirectory/*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $portable
