@@ -97,7 +97,7 @@ export default function Studio() {
         try {
           edit = JSON.parse(s.capture_preferences || "{}").editAfter !== false;
         } catch {}
-        setTab(e.payload.kind === "video" || edit ? "edit" : "library");
+        if (e.payload.kind === "video" || edit) setTab("edit");
       });
       void refresh();
     });
@@ -169,7 +169,7 @@ export default function Studio() {
             JSON.parse(settings.capture_preferences || "{}").editAfter !==
             false;
         } catch {}
-        setTab(video || edit ? "edit" : "library");
+        if (video || edit) setTab("edit");
         await refresh();
       } else setNotice(l("已取消", "Cancelled"));
     } catch (e) {

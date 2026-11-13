@@ -6,6 +6,10 @@
 
 > 剪贴板数据只存储在本机 SQLite 数据库中,不上传任何服务器。macOS 上为菜单栏应用(不占 Dock 图标)。
 
+## v1.0.34：关闭立即编辑后自动复制截图
+
+关闭「截图后立即编辑」后，截图会自动写入系统剪贴板，可直接粘贴。后台截图完成后不再自动打开工作台，也不会切换到媒体历史；截图仍保存在历史记录中。详见 [v1.0.34 更新说明](docs/releases/v1.0.34.md)。
+
 ## v1.0.33：Windows 启动修复
 
 修复 v1.0.32 因贴图列表请求早于后台初始化而导致的启动崩溃。便携版升级时保留原 `Data` 文件夹；发布前新增最终 Windows 安装包和便携目录的实际启动检查。详见 [v1.0.33 更新说明](docs/releases/v1.0.33.md)。
@@ -118,7 +122,7 @@ src-tauri/src/
 
 在 Actions 页面对应 run 的 Artifacts 里下载(PasteNext-macos-*/PasteNext-windows-*)。
 
-发布前同步更新 `package.json`、Tauri 配置、Cargo 包与锁文件版本，并运行 `python3 scripts/check-release-version.py v1.0.33`。正式构建使用仓库的 `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`；macOS 另需 `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` 加密 Secrets，以复用固定签名。发布流程会校验 DMG 内的签名并提供 `SHA256SUMS`。
+发布前同步更新 `package.json`、Tauri 配置、Cargo 包与锁文件版本，并运行 `python3 scripts/check-release-version.py v1.0.34`。正式构建使用仓库的 `PASTENEXT_SIGN_SECRET` / `PASTENEXT_MAIL_SECRET`；macOS 另需 `PASTENEXT_MACOS_CERTIFICATE` / `PASTENEXT_MACOS_CERTIFICATE_PASSWORD` 加密 Secrets，以复用固定签名。发布流程会校验 DMG 内的签名并提供 `SHA256SUMS`。
 
 ## Roadmap
 

@@ -6,6 +6,10 @@ A local-first, open-source clipboard manager for macOS and Windows, built with *
 
 > Clipboard data is stored only in a local SQLite database and never uploaded anywhere. On macOS it runs as a menu bar app (no Dock icon).
 
+## v1.0.34: Copy screenshots when immediate editing is disabled
+
+With Edit after capture disabled, screenshots are automatically copied to the system clipboard for immediate pasting. Background captures no longer open Capture Studio or switch to Library. Screenshots are still saved in history. See the [v1.0.34 release notes](docs/releases/v1.0.34.md).
+
 ## v1.0.33: Windows startup fix
 
 Fixed the v1.0.32 startup crash caused by a pin-list request arriving before backend initialization. Portable upgrades keep the existing Data directory. Release builds now launch the actual packaged Windows executable and portable directory before uploading artifacts. See the [v1.0.33 release notes](docs/releases/v1.0.33.md).

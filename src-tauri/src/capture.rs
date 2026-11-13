@@ -378,6 +378,9 @@ fn finish_image(app: &AppHandle, path: &Path, _scale: Option<f64>) -> Result<Med
     }
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let item = import_image_bytes(app, &bytes, "截图")?;
+    if !prefs.edit_after {
+        copy_media(app, &item)?;
+    }
     if prefs.auto_save {
         let result = (|| -> Result<(), String> {
             let dir = Path::new(&prefs.save_dir);
@@ -914,7 +917,8 @@ pub async fn capture_screen(
             }
             if video{register_video(&app,&path).map(Some)}else{let item=finish_image(&app,&path,selection.as_ref().and_then(|s|s.scale));let _=std::fs::remove_file(&path);item.map(Some)}
         })();
-        if restore_studio || !matches!(result,Ok(None)){let _=main_thread(&app,show_capture_studio);}
+        let open_editor = matches!(&result, Ok(Some(item)) if item.kind == "video" || preferences(&app).edit_after);
+        if restore_studio || open_editor || result.is_err(){let _=main_thread(&app,show_capture_studio);}
         result
     }).await.map_err(|e|e.to_string())?
 }
@@ -1067,27 +1071,30 @@ pub async fn media_import(app: AppHandle) -> Result<Option<MediaAsset>, String> 
 #[tauri::command]
 pub async fn media_copy(app: AppHandle, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _guard = app.state::<PasteState>().begin()?;
         let item = asset(&app, &id)?;
-        if item.kind == "video" {
-            return crate::platform::write_files(&[item.path]);
-        }
-        let rgba = image::open(&item.path)
-            .map_err(|e| e.to_string())?
-            .to_rgba8();
-        let hash = util::hash_rgba(rgba.width(), rgba.height(), rgba.as_raw());
-        crate::monitor::mark_self_write(&hash);
-        arboard::Clipboard::new()
-            .map_err(|e| e.to_string())?
-            .set_image(arboard::ImageData {
-                width: rgba.width() as usize,
-                height: rgba.height() as usize,
-                bytes: std::borrow::Cow::Owned(rgba.into_raw()),
-            })
-            .map_err(|e| e.to_string())
+        copy_media(&app, &item)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+fn copy_media(app: &AppHandle, item: &MediaAsset) -> Result<(), String> {
+    let _guard = app.state::<PasteState>().begin()?;
+    if item.kind == "video" {
+        return crate::platform::write_files(&[item.path.clone()]);
+    }
+    let rgba = image::open(&item.path)
+        .map_err(|e| e.to_string())?
+        .to_rgba8();
+    let hash = util::hash_rgba(rgba.width(), rgba.height(), rgba.as_raw());
+    crate::monitor::mark_self_write(&hash);
+    arboard::Clipboard::new()
+        .map_err(|e| e.to_string())?
+        .set_image(arboard::ImageData {
+            width: rgba.width() as usize,
+            height: rgba.height() as usize,
+            bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+        })
+        .map_err(|e| e.to_string())
 }
 #[tauri::command]
 pub async fn media_ocr(app: AppHandle, id: String) -> Result<String, String> {
